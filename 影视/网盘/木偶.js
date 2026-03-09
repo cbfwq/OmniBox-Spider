@@ -54,8 +54,6 @@ async function httpRequest(url, options = {}) {
     timeout: options.timeout,
     httpsAgent: INSECURE_HTTPS_AGENT,
     validateStatus: () => true,
-    responseType: "text",
-    transformResponse: [(data) => data],
   });
 
   let body = response.data;
