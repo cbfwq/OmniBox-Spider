@@ -2,8 +2,8 @@
 // @indexs 1
 // @author lampon
 // @description 豆瓣推荐爬虫脚本
-// @version 1.0.1
-// @downloadURL https://xget.xi-xu.me/gh/Silent1566/OmniBox-Spider/raw/refs/heads/main/模板/JavaScript/豆瓣.js
+// @version 1.0.2
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/%E6%A8%A1%E6%9D%BF/JavaScript/%E8%B1%86%E7%93%A3%E6%8E%A8%E8%8D%90.js
 
 const OmniBox = require("omnibox_sdk");
 
