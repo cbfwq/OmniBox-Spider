@@ -2,7 +2,7 @@
 // @author
 // @description 刮削：支持，弹幕：支持，嗅探：支持
 // @dependencies: axios, cheerio
-// @version 1.2.10
+// @version 1.2.12
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/木偶.js
 
 // 引入 OmniBox SDK
@@ -142,6 +142,7 @@ function filterSourceNamesForCaller(sourceNames = [], callerSource = "", context
 
 function resolveRouteType(flag = "", callerSource = "", context = {}) {
   const allowServerProxy = canUseServerProxy(context);
+  const validRouteTypes = new Set(["本地代理", "服务端代理", "直连"]);
   let routeType = "直连";
 
   if (callerSource === "web" || callerSource === "emby") {
@@ -155,6 +156,10 @@ function resolveRouteType(flag = "", callerSource = "", context = {}) {
     } else {
       routeType = flag;
     }
+  }
+
+  if (!validRouteTypes.has(routeType)) {
+    routeType = "直连";
   }
 
   if (!allowServerProxy && routeType === "服务端代理") {
@@ -1524,6 +1529,8 @@ async function play(params, context) {
 
     const header = playInfo.header || {};
     const finalDanmakuList = danmakuList && danmakuList.length > 0 ? danmakuList : playInfo.danmaku || [];
+
+    OmniBox.log("info", `实际播放地址: ${JSON.stringify(urlsResult)}`);
 
     return {
       urls: urlsResult,
