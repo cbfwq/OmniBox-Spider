@@ -2,7 +2,7 @@
 # @name 木兮
 # @author 梦
 # @description 影视站：https://film.symx.club ，Python版，接入首页、分类、搜索、详情与播放签名链路
-# @version 1.2.6
+# @version 1.2.13
 # @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/木兮.py
 # @dependencies cloudscraper,curl_cffi,Pillow,ddddocr,pycryptodome
 
@@ -1116,6 +1116,224 @@ def dedupe_vod_list(items, limit=0):
     return out
 
 
+def build_muxi_resource_id(vod_id):
+    return str(vod_id or "").strip()
+
+
+def build_muxi_episode_file_id(vod_id, source_name, episode_index, episode_name):
+    return f"{build_muxi_resource_id(vod_id)}#{str(source_name or '默认').strip()}#{int(episode_index)}#{str(episode_name or '').strip()}"
+
+
+def encode_muxi_play_meta(meta):
+    try:
+        raw = json.dumps(meta or {}, ensure_ascii=False)
+        return base64.urlsafe_b64encode(raw.encode("utf-8")).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def decode_muxi_play_meta(raw):
+    try:
+        text = base64.urlsafe_b64decode(str(raw or "").encode("utf-8")).decode("utf-8")
+        return json.loads(text or "{}")
+    except Exception:
+        return {}
+
+
+def build_muxi_scraped_episode_name(mapping, fallback_name):
+    if not isinstance(mapping, dict):
+        return str(fallback_name or "")
+    episode_number = mapping.get("episodeNumber")
+    episode_name = str(mapping.get("episodeName") or "").strip()
+    if episode_number and episode_name:
+        return f"{episode_number}.{episode_name}"
+    if episode_name:
+        return episode_name
+    return str(fallback_name or "")
+
+
+def extract_muxi_episode(title):
+    raw = str(title or "")
+    if not raw:
+        return ""
+    text = re.sub(r"\s+", " ", raw).strip()
+    match = re.search(r"第\s*(\d{1,3})\s*[集话章节回]", text)
+    if match:
+        return match.group(1)
+    match = re.search(r"\b(?:EP|E)[-._\s]*(\d{1,3})\b", text, flags=re.I)
+    if match:
+        return match.group(1)
+    match = re.search(r"[Ss](?:\d{1,2})?[-._\s]*[Ee](\d{1,3})", text, flags=re.I)
+    if match:
+        return match.group(1)
+    match = re.search(r"[\[\(【](\d{1,3})[\]\)】]", text)
+    if match and match.group(1) not in {"480", "720", "1080", "2160"}:
+        return match.group(1)
+    if re.fullmatch(r"\d{1,3}", text):
+        return text
+    return ""
+
+
+def build_muxi_danmaku_file_name(vod_name, episode_title):
+    title = str(vod_name or "").strip()
+    episode = str(episode_title or "").strip()
+    if not title:
+        return episode
+    if not episode or episode == "播放":
+        return title
+    digits = extract_muxi_episode(episode)
+    if digits:
+        try:
+            num = int(digits)
+            return f"{title} 第{num:02d}集"
+        except Exception:
+            return f"{title} 第{digits}集"
+    return f"{title} {episode}".strip()
+
+
+def build_muxi_danmaku_candidates(vod_name, episode_name, metadata, file_id):
+    candidates = []
+    title = str(vod_name or "").strip()
+    raw_episode = str(episode_name or "").strip()
+
+    def push(value):
+        text = str(value or "").strip()
+        if text and text not in candidates:
+            candidates.append(text)
+
+    if isinstance(metadata, dict):
+        mappings = metadata.get("videoMappings") or []
+        if isinstance(mappings, list) and file_id:
+            for mapping in mappings:
+                if not isinstance(mapping, dict):
+                    continue
+                if str(mapping.get("fileId") or "").strip() != str(file_id or "").strip():
+                    continue
+                scraped_episode_name = build_muxi_scraped_episode_name(mapping, raw_episode)
+                push(f"{title} {scraped_episode_name}".strip())
+                push(build_muxi_danmaku_file_name(title, scraped_episode_name))
+                break
+
+    push(build_muxi_danmaku_file_name(title, raw_episode))
+    push(f"{title} {raw_episode}".strip())
+    if title:
+        push(title)
+    return candidates
+
+
+def apply_muxi_scrape_mappings(play_sources, metadata):
+    if not isinstance(metadata, dict):
+        return play_sources, 0
+    mappings = metadata.get("videoMappings") or []
+    if not isinstance(mappings, list) or not mappings:
+        return play_sources, 0
+
+    mapping_by_file_id = {}
+    for mapping in mappings:
+        if not isinstance(mapping, dict):
+            continue
+        file_id = str(mapping.get("fileId") or "").strip()
+        if file_id:
+            mapping_by_file_id[file_id] = mapping
+
+    renamed = 0
+    for source in play_sources if isinstance(play_sources, list) else []:
+        for episode in (source or {}).get("episodes") or []:
+            file_id = str((episode or {}).get("_file_id") or "").strip()
+            if not file_id or file_id not in mapping_by_file_id:
+                continue
+            new_name = build_muxi_scraped_episode_name(mapping_by_file_id[file_id], episode.get("name"))
+            if new_name and new_name != episode.get("name"):
+                episode["name"] = new_name
+                renamed += 1
+    return play_sources, renamed
+
+
+async def spawn_background_job(coro, label):
+    try:
+        task = asyncio.create_task(coro)
+
+        def _on_done(fut):
+            try:
+                fut.result()
+            except Exception as e:
+                try:
+                    asyncio.create_task(log("warn", f"[木兮][bg:{label}] {e}"))
+                except Exception:
+                    pass
+
+        task.add_done_callback(_on_done)
+    except Exception as e:
+        await log("warn", f"[木兮][bg-spawn:{label}] {e}")
+
+
+async def run_muxi_scraping_task(vod_id, vod_name, play_sources):
+    try:
+        resource_id = build_muxi_resource_id(vod_id)
+        video_files = []
+        for source in play_sources if isinstance(play_sources, list) else []:
+            source_name = str((source or {}).get("name") or "默认").strip() or "默认"
+            for idx, episode in enumerate((source or {}).get("episodes") or [], start=1):
+                episode_name = str((episode or {}).get("name") or f"第{idx}集").strip() or f"第{idx}集"
+                file_id = str((episode or {}).get("_file_id") or build_muxi_episode_file_id(vod_id, source_name, idx, episode_name)).strip()
+                video_files.append({
+                    "fid": file_id,
+                    "file_id": file_id,
+                    "file_name": episode_name,
+                    "name": episode_name,
+                    "format_type": "video",
+                })
+        if not video_files:
+            await log("info", f"[木兮][scrape] skip empty video files vodId={vod_id}")
+            return
+        await log("info", f"[木兮][scrape] start vodId={vod_id} files={len(video_files)}")
+        await OmniBox.processScraping(resource_id, vod_name or "", vod_name or "", video_files)
+        metadata = await OmniBox.getScrapeMetadata(resource_id)
+        mapping_count = len((metadata or {}).get("videoMappings") or []) if isinstance(metadata, dict) else 0
+        has_scrape = bool(((metadata or {}).get("scrapeData") or {})) if isinstance(metadata, dict) else False
+        renamed_sources, renamed_count = apply_muxi_scrape_mappings(play_sources, metadata if isinstance(metadata, dict) else {})
+
+        cache_key = f"detail:{vod_id}"
+        cached_detail = get_cache(cache_key, TTL_DETAIL_MS)
+        if isinstance(cached_detail, dict) and renamed_count > 0:
+            cached_detail["vod_play_sources"] = renamed_sources
+            set_cache(cache_key, cached_detail)
+
+        await log("info", f"[木兮][scrape] done vodId={vod_id} mappings={mapping_count} renamed={renamed_count} hasScrape={has_scrape}")
+    except Exception as e:
+        await log("warn", f"[木兮][scrape] {e}")
+
+
+async def run_muxi_play_side_effects(vod_id, vod_name, episode_name, play_url, headers, referer, file_id=""):
+    try:
+        total_duration = None
+        try:
+            media_info = await OmniBox.getVideoMediaInfo(play_url, headers or {})
+            duration = float((((media_info or {}).get("format") or {}).get("duration") or 0))
+            if duration > 0:
+                total_duration = int(round(duration))
+        except Exception as e:
+            await log("warn", f"[木兮][media-info] {e}")
+
+        try:
+            await OmniBox.addPlayHistory(
+                build_muxi_resource_id(vod_id) or play_url,
+                vod_name or "木兮",
+                {
+                    "episode": episode_name or "播放",
+                    "episodeName": episode_name or "播放",
+                    "playUrl": play_url,
+                    "playHeader": headers or {},
+                    "totalDuration": total_duration,
+                },
+            )
+            await log("info", f"[木兮][history] done vodId={build_muxi_resource_id(vod_id) or play_url} episode={episode_name or '播放'} duration={total_duration or 0}")
+        except Exception as e:
+            await log("warn", f"[木兮][history] {e}")
+    except Exception as e:
+        await log("warn", f"[木兮][play-side-effects] {e}")
+
+
 def map_home_poster_item(item):
     if not isinstance(item, dict):
         return {}
@@ -1293,7 +1511,6 @@ async def detail(params, context):
             item = get_cache(cache_key, TTL_DETAIL_MS)
             if item is None:
                 detail_referer = f"{HOST}/detail/1/{quote(film_id)}"
-                detail_url = f"{HOST}/api/film/detail?id={quote(film_id)}"
                 play_url = f"{HOST}/api/film/detail/play?filmId={quote(film_id)}"
 
                 play_json = await request_json_with_auth_retry(
@@ -1301,32 +1518,34 @@ async def detail(params, context):
                     referer=detail_referer,
                     validator=lambda obj: is_success_json(obj) and isinstance(((obj or {}).get("data") or {}).get("playLineList"), list),
                 )
-                play_data = (play_json or {}).get("data") or {}
-
-                detail_data = {}
-                if has_auth_state():
-                    detail_json = await request_json(
-                        detail_url,
-                        headers=build_signed_headers(detail_url, detail_referer, False),
-                    )
-                    candidate_detail = (detail_json or {}).get("data") or {}
-                    if has_nonempty_detail_fields(candidate_detail):
-                        detail_data = candidate_detail
-                data = detail_data or play_data
+                data = (play_json or {}).get("data") or {}
                 if not data:
                     continue
 
                 sources = []
-                for line in play_data.get("playLineList") or detail_data.get("playLineList") or []:
+                for line in data.get("playLineList") or []:
                     episodes = []
-                    for ep in line.get("lines") or []:
+                    for ep_index, ep in enumerate(line.get("lines") or [], start=1):
                         line_id = str(ep.get("id") or "").strip()
                         if not line_id:
                             continue
-                        title = str(ep.get("name") or "播放").strip() or "播放"
+                        title = str(ep.get("name") or f"第{ep_index}集").strip() or f"第{ep_index}集"
+                        file_id = build_muxi_episode_file_id(data.get("id") or film_id, line.get("playerName") or "默认", ep_index, title)
+                        play_meta = encode_muxi_play_meta({
+                            "vod_id": str(data.get("id") or film_id),
+                            "vod_name": str(data.get("name") or ""),
+                            "category_id": str(data.get("categoryId") or ""),
+                            "episode_name": title,
+                            "file_id": file_id,
+                            "source_name": str(line.get("playerName") or "默认"),
+                        })
+                        play_id = f"{line_id}@{data.get('id') or film_id}@{data.get('categoryId') or ''}"
+                        if play_meta:
+                            play_id = f"{play_id}|||{play_meta}"
                         episodes.append({
                             "name": title,
-                            "playId": f"{line_id}@{data.get('id') or film_id}@{data.get('categoryId') or ''}",
+                            "playId": play_id,
+                            "_file_id": file_id,
                         })
                     if episodes:
                         sources.append({
@@ -1339,6 +1558,14 @@ async def detail(params, context):
                 director = clean_html_text(data.get("director") or "")
                 actor = clean_html_text(data.get("actor") or "")
                 other = str(data.get("other") or join_text_parts(area, language))
+                metadata = None
+                renamed_count = 0
+                try:
+                    metadata = await OmniBox.getScrapeMetadata(build_muxi_resource_id(data.get("id") or film_id))
+                    sources, renamed_count = apply_muxi_scrape_mappings(sources, metadata if isinstance(metadata, dict) else {})
+                except Exception as e:
+                    await log("warn", f"[木兮][detail] scrape metadata read failed {e}")
+
                 item = {
                     "vod_id": str(data.get("id") or film_id),
                     "vod_name": str(data.get("name") or ""),
@@ -1360,6 +1587,11 @@ async def detail(params, context):
                     "vod_play_sources": sources,
                 }
                 set_cache(cache_key, item)
+                await log("info", f"[木兮][detail] scrape-rename immediate={renamed_count} vodId={item.get('vod_id')}")
+                await spawn_background_job(
+                    run_muxi_scraping_task(item.get("vod_id"), item.get("vod_name"), sources),
+                    f"scrape:{item.get('vod_id')}",
+                )
             if item:
                 out.append(item)
         return {"list": out}
@@ -1378,10 +1610,17 @@ async def play(params, context):
         if cached is not None:
             return cached
 
-        parts = raw_id.split("@")
+        play_meta = {}
+        play_id_raw = raw_id
+        if "|||" in raw_id:
+            play_id_raw, meta_raw = raw_id.split("|||", 1)
+            play_meta = decode_muxi_play_meta(meta_raw)
+
+        parts = play_id_raw.split("@")
         line_id = parts[0] if len(parts) > 0 else ""
-        film_id = parts[1] if len(parts) > 1 else ""
-        category_id = parts[2] if len(parts) > 2 else ""
+        film_id = str(play_meta.get("vod_id") or (parts[1] if len(parts) > 1 else ""))
+        category_id = str(play_meta.get("category_id") or (parts[2] if len(parts) > 2 else ""))
+        file_id = str(play_meta.get("file_id") or params.get("file_id") or params.get("fid") or "").strip()
         if not line_id:
             return dict(EMPTY_PLAY)
 
@@ -1404,23 +1643,66 @@ async def play(params, context):
             await log("info", f"[木兮][play] parse response code={(json_obj or {}).get('code')} message={(json_obj or {}).get('message')}")
             return str((json_obj or {}).get("data") or "").strip()
 
-        play_url = await load_direct_play(False)
+        episode_name = str(play_meta.get("episode_name") or params.get("name") or params.get("episodeName") or params.get("title") or "播放").strip() or "播放"
+        vod_name_for_side = str(play_meta.get("vod_name") or params.get("vod_name") or params.get("videoName") or film_id)
+
+        async def load_danmaku_bundle():
+            metadata = None
+            try:
+                metadata = await OmniBox.getScrapeMetadata(build_muxi_resource_id(film_id))
+            except Exception:
+                metadata = None
+            candidates = build_muxi_danmaku_candidates(vod_name_for_side, episode_name, metadata, file_id)
+            for candidate in candidates:
+                danmaku = await OmniBox.getDanmakuByFileName(candidate)
+                if danmaku:
+                    return candidate, danmaku
+            return (candidates[0] if candidates else f"{vod_name_for_side} {episode_name}".strip()), None
+
+        play_task = asyncio.create_task(load_direct_play(False))
+        danmaku_task = asyncio.create_task(load_danmaku_bundle())
+
+        play_url = await play_task
         if not play_url:
             play_url = await load_direct_play(True)
         if not play_url:
+            if not danmaku_task.done():
+                danmaku_task.cancel()
             return dict(EMPTY_PLAY)
 
         result = {
             "parse": 0,
             "url": play_url,
-            "urls": [{"name": "播放", "url": play_url}],
+            "urls": [{"name": episode_name, "url": play_url}],
             "header": {
                 "User-Agent": SITE_HEADERS["User-Agent"],
                 "Referer": referer,
             },
             "flag": str(params.get("flag") or ""),
         }
+
+        try:
+            danmaku_file_name, danmaku = await danmaku_task
+            if danmaku:
+                result["danmaku"] = danmaku
+                await log("info", f"[木兮][play] danmaku attached file={danmaku_file_name}")
+            else:
+                await log("info", f"[木兮][play] danmaku miss file={danmaku_file_name}")
+        except Exception as e:
+            await log("warn", f"[木兮][play] danmaku attach failed {e}")
         set_cache(cache_key, result)
+        await spawn_background_job(
+            run_muxi_play_side_effects(
+                film_id,
+                vod_name_for_side,
+                episode_name,
+                play_url,
+                result.get("header") or {},
+                referer,
+                file_id,
+            ),
+            f"play-side-effects:{film_id}:{line_id}",
+        )
         return result
     except Exception as e:
         await log("error", f"[木兮][play] {e}")
