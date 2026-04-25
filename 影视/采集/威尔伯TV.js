@@ -2,7 +2,7 @@
 // @author 梦
 // @description 刮削：已接入，弹幕：未接入，嗅探：直接返回 play.modujx11.com 直链
 // @dependencies cheerio
-// @version 1.0.0
+// @version 1.0.1
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/openclaw/影视/采集/威尔伯TV.js
 
 const OmniBox = require("omnibox_sdk");
@@ -129,20 +129,16 @@ function buildDetailResult(html, vodId) {
   const content = clean($('meta[property="og:description"]').attr('content') || $('meta[name="description"]').attr('content') || '');
   const director = clean($('a[href*="google.com/search?q=导演:"]').text() || '');
   const infoLine = clean($('.space-y-2 p.text-gray-1').first().text());
-  const playUrl = $('div[class*="grid-cols-[1fr_300px]"] [url]').attr('url') || '';
+  const text = decodeRsc(html);
+  const playUrlMatch = text.match(/https:\/\/play\.modujx11\.com\/[^"\s]+\.m3u8/);
+  const episodeMatch = text.match(/episodes\":\[\"([^\"]+)\"\]/);
   const episodes = [];
-  const epText = String($('div[class*="grid-cols-[1fr_300px]"] [episodes]').attr('episodes') || '');
-  if (epText) {
-    try {
-      const arr = JSON.parse(epText.replace(/&quot;/g, '"'));
-      for (const item of arr) {
-        const [name, url] = String(item || '').split('$');
-        if (name && url) episodes.push({ name, playId: url });
-      }
-    } catch {}
+  if (episodeMatch) {
+    const [name, url] = String(episodeMatch[1] || '').split('$');
+    if (name && url) episodes.push({ name, playId: url });
   }
-  if (!episodes.length && playUrl) {
-    episodes.push({ name: '正片', playId: playUrl });
+  if (!episodes.length && playUrlMatch) {
+    episodes.push({ name: '正片', playId: playUrlMatch[1] });
   }
   return {
     vod_id: String(vodId || ''),
