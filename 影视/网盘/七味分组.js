@@ -2,7 +2,7 @@
 // @author https://github.com/hjdhnx/drpy-node/blob/main/spider/js/%E4%B8%83%E5%91%B3%5B%E4%BC%98%5D.js
 // @description 刮削：支持，弹幕：支持，嗅探：支持，仅保留七味网盘线路的分组版本
 // @dependencies: axios, cheerio
-// @version      1.4.4
+// @version      1.5.0
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/七味分组.js
 
 const axios = require("axios");
@@ -426,6 +426,138 @@ function extractVideoId(urlOrId) {
 function isBlockedLineName(name) {
     if (!name) return false;
     return String(name).includes("磁力");
+}
+
+function normalizeText(value) {
+    return String(value || "").replace(/\s+/g, " ").trim();
+}
+
+function normalizeSeedType(type = "", link = "") {
+    const t = String(type || "").trim().toLowerCase();
+    const u = String(link || "").trim().toLowerCase();
+    if (u.startsWith("magnet:")) return "magnet";
+    if (u.startsWith("ed2k://")) return "ed2k";
+    if (/\.torrent($|\?)/i.test(u)) return "torrent";
+    if (t === "magnet" || t === "magnet_url" || t === "magnet_link") return "magnet";
+    if (t === "ed2k" || t === "ed2k_url" || t === "ed2k_link") return "ed2k";
+    if (t === "torrent") return "torrent";
+    return t || "other";
+}
+
+function isDirectPlayableSeedType(seedType = "") {
+    const t = String(seedType || "").toLowerCase();
+    return t !== "magnet" && t !== "ed2k";
+}
+
+function extractEpisodeNumber(name = "") {
+    const text = String(name || "");
+    const patterns = [
+        /S\d{1,2}E(\d{1,3})/i,
+        /第\s*(\d{1,3})\s*[集话]/,
+        /\[(\d{1,3})\s*[集话]\]/,
+        /(?:^|[^A-Z0-9])E[P]?(\d{1,3})(?:[^A-Z0-9]|$)/i,
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (!match) continue;
+        const episode = Number(match[1]);
+        if (Number.isFinite(episode) && episode > 0) return episode;
+    }
+    return null;
+}
+
+function extractEpisodeRange(name = "") {
+    const text = String(name || "");
+    const patterns = [
+        /\[第\s*(\d{1,3})\s*[-—~～至]\s*(\d{1,3})\s*[集话]\]/,
+        /第\s*(\d{1,3})\s*[-—~～至]\s*(\d{1,3})\s*[集话]/,
+        /\[(\d{1,3})\s*[-—~～至]\s*(\d{1,3})\s*[集话]\]/,
+    ];
+    for (const pattern of patterns) {
+        const match = text.match(pattern);
+        if (!match) continue;
+        const start = Number(match[1]);
+        const end = Number(match[2]);
+        if (Number.isFinite(start) && Number.isFinite(end) && start > 0 && end >= start) {
+            return { start, end };
+        }
+    }
+    return null;
+}
+
+function formatEpisodeLabel(ep, fallbackTitle = "") {
+    if (Number.isFinite(ep) && ep > 0) return `第${String(ep).padStart(2, "0")}集`;
+    return fallbackTitle || "资源";
+}
+
+function formatEpisodeRangeLabel(range, fallbackTitle = "") {
+    if (range && Number.isFinite(range.start) && Number.isFinite(range.end)) {
+        return `第${String(range.start).padStart(2, "0")}-${String(range.end).padStart(2, "0")}集`;
+    }
+    return fallbackTitle || "资源";
+}
+
+function sortEpisodesByEpisodeNumber(episodes = []) {
+    return [...episodes].sort((a, b) => {
+        const aRangeStart = Number.isFinite(a?.episodeRangeStart) ? a.episodeRangeStart : null;
+        const bRangeStart = Number.isFinite(b?.episodeRangeStart) ? b.episodeRangeStart : null;
+        const aEpisode = Number.isFinite(a?.episodeNumber) ? a.episodeNumber : (aRangeStart ?? Number.MAX_SAFE_INTEGER);
+        const bEpisode = Number.isFinite(b?.episodeNumber) ? b.episodeNumber : (bRangeStart ?? Number.MAX_SAFE_INTEGER);
+        if (aEpisode !== bEpisode) return aEpisode - bEpisode;
+        const aRangeEnd = Number.isFinite(a?.episodeRangeEnd) ? a.episodeRangeEnd : aEpisode;
+        const bRangeEnd = Number.isFinite(b?.episodeRangeEnd) ? b.episodeRangeEnd : bEpisode;
+        if (aRangeEnd !== bRangeEnd) return aRangeEnd - bRangeEnd;
+        return String(a?.name || "").localeCompare(String(b?.name || ""), "zh-Hans-CN");
+    });
+}
+
+function buildMagnetEpisode(item = {}, fallbackTitle = "", extra = {}) {
+    const link = String(
+        item?.link ||
+        item?.zlink ||
+        item?.magnet ||
+        item?.magnet_url ||
+        item?.magnet_link ||
+        item?.ed2k ||
+        item?.ed2k_url ||
+        item?.ed2k_link ||
+        item?.torrent ||
+        extra.link ||
+        ""
+    ).trim();
+    const seedType = normalizeSeedType(item?.type || extra.seedType || "", link);
+    const rawTitle = normalizeText(item?.seed_name || item?.zname || item?.name || fallbackTitle || "资源");
+    const quality = normalizeText(item?.zqxd || item?.definition_group || extra.quality || "");
+    const size = normalizeText(item?.zsize || item?.size || extra.size || "");
+    const createdAt = normalizeText(item?.created_at || item?.ezt || extra.createdAt || "");
+    const remarkBits = [size, quality, createdAt].filter(Boolean);
+    const episodeRange = extractEpisodeRange(rawTitle);
+    const episodeNumber = episodeRange ? null : extractEpisodeNumber(rawTitle);
+    const episodeLabel = (seedType === "magnet" || seedType === "ed2k" || seedType === "torrent")
+        ? (episodeRange ? formatEpisodeRangeLabel(episodeRange, rawTitle) : formatEpisodeLabel(episodeNumber, rawTitle))
+        : rawTitle;
+    const displayName = remarkBits.length > 0 ? `${episodeLabel} [${remarkBits.join(" / ")}]` : episodeLabel;
+    const simplePlayId = Boolean(extra.simplePlayId) && (seedType === "magnet" || seedType === "ed2k" || seedType === "torrent");
+    const playMeta = {
+        link,
+        seedType,
+        title: rawTitle,
+        displayName,
+        quality,
+        size,
+        createdAt,
+        directPlayable: Boolean(extra.directPlayable ?? isDirectPlayableSeedType(seedType)),
+    };
+    return {
+        name: episodeLabel,
+        seedType,
+        episodeNumber,
+        episodeRangeStart: episodeRange?.start ?? null,
+        episodeRangeEnd: episodeRange?.end ?? null,
+        playId: simplePlayId ? link : JSON.stringify(playMeta),
+        _displayName: displayName,
+        _rawName: rawTitle,
+    };
 }
 
 function formatFileSize(size) {
@@ -1883,27 +2015,59 @@ async function extractPanLinksFromDetail(videoId) {
     }
 
     const magnetGroups = [];
-    const magnetUrlSet = new Set();
+    const magnetMetaMap = new Map();
+    const upsertMagnetMeta = (rawLink = "", meta = {}) => {
+        const link = String(rawLink || "").trim();
+        if (!/^(magnet:\?xt=urn:btih:|ed2k:\/\/|https?:\/\/[^\s]+\.torrent(?:$|\?))/i.test(link)) return;
+        const previous = magnetMetaMap.get(link) || {};
+        magnetMetaMap.set(link, {
+            ...previous,
+            ...meta,
+            link,
+            zname: pickBetterShareDisplayName(meta?.zname || meta?.name || "", previous?.zname || previous?.name || "") || previous?.zname || previous?.name || meta?.zname || meta?.name || "",
+            zsize: String(meta?.zsize || previous?.zsize || "").trim(),
+            zqxd: String(meta?.zqxd || previous?.zqxd || "").trim(),
+            ezt: String(meta?.ezt || previous?.ezt || "").trim(),
+            type: normalizeSeedType(meta?.type || previous?.type || "", link),
+        });
+    };
     html.replace(/magnet:\?xt=urn:btih:[A-Za-z0-9]+[^"'\s<]*/gi, (match) => {
-        magnetUrlSet.add(String(match || "").trim());
+        upsertMagnetMeta(match, {});
+        return match;
+    });
+    html.replace(/ed2k:\/\/[^"'\s<]+/gi, (match) => {
+        upsertMagnetMeta(match, {});
+        return match;
+    });
+    html.replace(/https?:\/\/[^"'\s<]+\.torrent(?:\?[^"'\s<]*)?/gi, (match) => {
+        upsertMagnetMeta(match, {});
         return match;
     });
     $("a").each((_, a) => {
         const anchor = $(a);
         const href = String(anchor.attr("href") || "").trim();
         const clipboard = String(anchor.attr("data-clipboard-text") || "").trim();
-        if (/^magnet:\?xt=urn:btih:/i.test(href)) magnetUrlSet.add(href);
-        if (/^magnet:\?xt=urn:btih:/i.test(clipboard)) magnetUrlSet.add(clipboard);
+        const title = pickBetterShareDisplayName(anchor.attr("title") || "", anchor.text() || "");
+        const meta = { zname: title };
+        upsertMagnetMeta(href, meta);
+        upsertMagnetMeta(clipboard, meta);
     });
-    Array.from(magnetUrlSet).forEach((magnetUrl, index) => {
+    Array.from(magnetMetaMap.values()).forEach((item, index) => {
+        const fallbackTitle = pickBetterShareDisplayName(item?.zname || item?.name || "", `磁力资源${index + 1}`);
+        const episode = buildMagnetEpisode(item, fallbackTitle, { simplePlayId: true, directPlayable: true });
         magnetGroups.push({
             lineIndex: index,
             name: `磁力线路${index + 1}`,
             episodes: [{
-                name: `磁力资源${index + 1}`,
-                playId: magnetUrl,
+                name: episode.name,
+                playId: episode.playId,
                 _fid: `magnet#${index}`,
-                _rawName: `磁力资源${index + 1}`,
+                _rawName: episode._rawName || episode.name,
+                _displayName: episode._displayName || episode.name,
+                _seedType: episode.seedType,
+                _episodeNumber: episode.episodeNumber,
+                _episodeRangeStart: episode.episodeRangeStart,
+                _episodeRangeEnd: episode.episodeRangeEnd,
             }],
         });
     });
@@ -2479,14 +2643,40 @@ async function detail(params, context = {}) {
                 return { list: [] };
             }
             const rawEpisodes = Array.isArray(targetGroup?.episodes) ? targetGroup.episodes : [];
-            const normalizedEpisodes = rawEpisodes.map((ep, index) => ({
+            let normalizedEpisodes = rawEpisodes.map((ep, index) => ({
                 name: String(ep?.name || (sourceType === "magnet" ? `磁力资源${index + 1}` : `第${index + 1}集`)).trim(),
                 playId: String(ep?.playId || "").trim(),
+                _displayName: String(ep?._displayName || ep?.name || "").trim(),
+                _rawName: String(ep?._rawName || ep?.name || "").trim(),
+                _seedType: String(ep?._seedType || "").trim(),
+                _episodeNumber: Number.isFinite(ep?._episodeNumber) ? ep._episodeNumber : null,
+                _episodeRangeStart: Number.isFinite(ep?._episodeRangeStart) ? ep._episodeRangeStart : null,
+                _episodeRangeEnd: Number.isFinite(ep?._episodeRangeEnd) ? ep._episodeRangeEnd : null,
             })).filter((ep) => ep.playId);
+            if (sourceType === "magnet") {
+                normalizedEpisodes = sortEpisodesByEpisodeNumber(normalizedEpisodes.map((ep) => ({
+                    ...ep,
+                    name: ep._displayName || ep.name,
+                    episodeNumber: ep._episodeNumber,
+                    episodeRangeStart: ep._episodeRangeStart,
+                    episodeRangeEnd: ep._episodeRangeEnd,
+                }))).map(({ episodeNumber, episodeRangeStart, episodeRangeEnd, _displayName, _rawName, _seedType, _episodeNumber, _episodeRangeStart, _episodeRangeEnd, ...rest }) => ({
+                    ...rest,
+                    _displayName,
+                    _rawName,
+                    _seedType,
+                    _episodeNumber: _episodeNumber ?? episodeNumber ?? null,
+                    _episodeRangeStart: _episodeRangeStart ?? episodeRangeStart ?? null,
+                    _episodeRangeEnd: _episodeRangeEnd ?? episodeRangeEnd ?? null,
+                }));
+            }
             const fallbackSourceName = String(targetGroup?.name || (sourceType === "magnet" ? "磁力线路" : "采集线路")).trim();
             const normalizedPlaySources = normalizedEpisodes.length > 0 ? [{
                 name: fallbackSourceName,
-                episodes: normalizedEpisodes,
+                episodes: normalizedEpisodes.map((ep) => ({
+                    name: ep._displayName || ep.name,
+                    playId: ep.playId,
+                })),
             }] : [];
             const baseVodName = stripPanTypeSuffix(detailInfo.vod_name || video.vod_name || "七味资源");
             return {
