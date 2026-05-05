@@ -2,7 +2,7 @@
 // @author 梦
 // @description 刮削：已接入，弹幕：已接入，播放记录：已接入，嗅探：不需要（直链优先，支持网盘线路展开）
 // @dependencies
-// @version 1.4.7
+// @version 1.5.6
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/LIBVIO.js
 
 const http = require("http");
@@ -13,11 +13,15 @@ const OmniBox = require("omnibox_sdk");
 const runner = require("spider_runner");
 
 const HOST_CANDIDATES = [
+    "https://www.libvio.lat",
     "https://www.libvios.com",
     "https://libvio.run",
     "https://www.libvio.mov",
     "https://www.libhd.com",
 ].map((item) => normalizeHost(item)).filter(Boolean);
+const LIBVIO_RELEASE_URL = "https://www.libvio.app";
+const HOST_CACHE_KEY = "libvio:active_host";
+const HOST_CACHE_TTL = 60 * 60 * 24 * 30;
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
 let ACTIVE_HOST = HOST_CANDIDATES[0];
 
@@ -34,9 +38,10 @@ const SOURCE_NAMES_CONFIG = (process.env.SOURCE_NAMES_CONFIG || "本地代理;�
 const DRIVE_ORDER = (process.env.DRIVE_ORDER || "baidu;tianyi;quark;uc;115;xunlei;ali;123pan").split(";").map((s) => s.trim().toLowerCase()).filter(Boolean);
 const panShareCache = new Map();
 
+// 分类映射（根据实际页面结构更新）
 const CLASS_LIST = [
     { type_id: "1", type_name: "电影" },
-    { type_id: "2", type_name: "剧集" },
+    { type_id: "2", type_name: "电视剧" }, // 原 "剧集" → "电视剧" 兼容新版页面
     { type_id: "4", type_name: "动漫" },
     { type_id: "15", type_name: "日韩剧" },
     { type_id: "16", type_name: "欧美剧" }
@@ -45,12 +50,12 @@ const CLASS_LIST = [
 const FILTERS = {
     "1": {
         genre: ["喜剧", "爱情", "恐怖", "动作", "科幻", "剧情", "战争", "警匪", "犯罪", "动画", "奇幻", "武侠", "冒险", "枪战", "悬疑", "惊悚", "经典", "青春", "文艺", "微电影", "古装", "历史", "运动", "农村", "儿童", "网络电影"],
-        area: ["中国大陆", "中国香港", "中国台湾", "美国", "法国", "英国", "日本", "韩国", "德国", "泰国", "印度", "意大利", "西班牙", "加拿大", "其他"],
+        area: ["大陆", "香港", "台湾", "美国", "法国", "英国", "日本", "韩国", "德国", "泰国", "印度", "意大利", "西班牙", "加拿大", "其他"],
         lang: ["国语", "英语", "粤语", "闽南语", "韩语", "日语", "其它"]
     },
     "2": {
-        genre: ["古装", "战争", "青春偶像", "喜剧", "家庭", "犯罪", "动作", "奇幻", "剧情", "历史", "经典", "乡村", "情景", "商战", "网剧", "其他"],
-        area: ["中国大陆", "中国台湾", "中国香港", "韩国", "日本", "美国", "泰国", "英国", "新加坡", "其他"],
+        genre: ["喜剧", "科幻", "悬疑", "欧美", "剧情", "奇幻", "古装", "动作", "犯罪", "冒险", "惊悚", "恐怖", "历史", "爱情", "音乐", "家庭", "国产", "运动", "动画", "西部", "战争", "传记", "灾难", "纪录片", "短片", "海外", "真人秀"],
+        area: ["美国", "韩国", "英国", "日本", "大陆", "台湾", "德国", "哥伦比亚", "意大利", "西班牙", "丹麦", "挪威", "法国", "香港", "泰国", "其它"],
         lang: ["国语", "英语", "粤语", "闽南语", "韩语", "日语", "其它"]
     },
     "4": {
@@ -92,6 +97,59 @@ function getCurrentHost() {
     return ACTIVE_HOST || HOST_CANDIDATES[0];
 }
 
+async function saveActiveHostCache(host) {
+    const normalized = normalizeHost(host);
+    if (!normalized) return;
+    try {
+        await OmniBox.setCache(HOST_CACHE_KEY, normalized, HOST_CACHE_TTL);
+        logInfo("写入域名缓存", { host: normalized, ttl: HOST_CACHE_TTL });
+    } catch (error) {
+        logInfo("写入域名缓存失败", { host: normalized, error: error.message });
+    }
+}
+
+async function readActiveHostCache() {
+    try {
+        const cached = await OmniBox.getCache(HOST_CACHE_KEY);
+        const normalized = normalizeHost(cached || "");
+        if (normalized) {
+            logInfo("命中域名缓存", { host: normalized });
+            return normalized;
+        }
+    } catch (error) {
+        logInfo("读取域名缓存失败", { error: error.message });
+    }
+    return "";
+}
+
+async function fetchReleaseHosts() {
+    const html = await requestTextAbsolute(LIBVIO_RELEASE_URL, {
+        timeout: 12000,
+        hostForHeaders: normalizeHost(LIBVIO_RELEASE_URL),
+    });
+    const found = [];
+    const pushHost = (value) => {
+        const normalized = normalizeHost(value);
+        if (!normalized) return;
+        if (/libvio\.app$/i.test(new URL(normalized).host)) return;
+        found.push(normalized);
+    };
+
+    const domainRegex = /https?:\/\/[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}(?::\d+)?/g;
+    const hrefRegex = /href=["']([^"']+)["']/g;
+
+    let m;
+    while ((m = domainRegex.exec(html))) pushHost(m[0]);
+    while ((m = hrefRegex.exec(html))) {
+        const href = String(m[1] || "").trim();
+        if (/^https?:\/\//i.test(href)) pushHost(href);
+    }
+
+    const unique = found.filter((item, idx, arr) => arr.indexOf(item) === idx);
+    logInfo("发布页候选域名", { release: LIBVIO_RELEASE_URL, count: unique.length, hosts: unique.slice(0, 12) });
+    return unique;
+}
+
 function buildHeadersForHost(host, extra = {}) {
     return {
         "User-Agent": UA,
@@ -118,8 +176,9 @@ async function requestTextAbsolute(url, options = {}) {
             res.on("data", (chunk) => chunks.push(chunk));
             res.on("end", () => {
                 const body = Buffer.concat(chunks).toString("utf8");
-                if (res.statusCode !== 200) {
-                    reject(new Error(`请求失败: ${res.statusCode} ${target.href}`));
+                const statusCode = Number(res.statusCode || 0);
+                if (statusCode < 200 || statusCode >= 400) {
+                    reject(new Error(`请求失败: ${statusCode} ${target.href}`));
                     return;
                 }
                 resolve(body);
@@ -146,13 +205,30 @@ async function probeHost(host) {
 
 async function ensureActiveHost(preferredHost = "") {
     const preferred = normalizeHost(preferredHost);
-    const ordered = [preferred, getCurrentHost(), ...HOST_CANDIDATES].filter(Boolean).filter((item, idx, arr) => arr.indexOf(item) === idx);
+    const cachedHost = await readActiveHostCache();
+
+    let releaseHosts = [];
+    try {
+        releaseHosts = await fetchReleaseHosts();
+    } catch (error) {
+        logInfo("读取发布页域名失败", { release: LIBVIO_RELEASE_URL, error: error.message });
+    }
+
+    const ordered = [
+        preferred,
+        cachedHost,
+        getCurrentHost(),
+        ...releaseHosts,
+        ...HOST_CANDIDATES,
+    ].filter(Boolean).filter((item, idx, arr) => arr.indexOf(item) === idx);
+
     for (const host of ordered) {
         if (await probeHost(host)) {
             if (ACTIVE_HOST !== host) {
                 logInfo("切换可用域名", { from: ACTIVE_HOST, to: host });
             }
             ACTIVE_HOST = host;
+            await saveActiveHostCache(host);
             return ACTIVE_HOST;
         }
     }
@@ -448,6 +524,28 @@ function buildFilterList(categoryId) {
     return list;
 }
 
+function buildFilterListFromHtml(html = "", categoryId = "") {
+    const groups = parseFilterGroups(html);
+    const list = [];
+    for (const group of groups) {
+        const key = mapFilterTitleToKey(group.title);
+        if (!key || !Array.isArray(group.items) || !group.items.length) continue;
+        const title = String(group.title || "").replace(/^按/, "").replace(/[：:]\s*$/u, "").trim();
+        const values = group.items.map((item) => ({
+            name: item.name,
+            value: item.name,
+        })).filter((item) => item.name);
+        if (!values.length) continue;
+        list.push({
+            key,
+            name: title,
+            init: key === "sort" ? "time" : "",
+            value: key === "sort" ? SORT_OPTIONS.map((item) => ({ name: item.name, value: item.value })) : values,
+        });
+    }
+    return list.length ? list : buildFilterList(categoryId);
+}
+
 function buildYearOptions() {
     const current = new Date().getFullYear();
     const list = [];
@@ -464,11 +562,14 @@ function getCategoryBasePath(categoryId, page = 1) {
 
 function parseFilterGroups(html = "") {
     const groups = [];
+    const text = String(html || "").replace(/<!--[\s\S]*?-->/g, "");
     const ulRegex = /<ul class="clearfix">([\s\S]*?)<\/ul>/g;
     let match;
-    while ((match = ulRegex.exec(html))) {
-        const block = match[1];
-        const title = stripTags(block.match(/<li><span>([^<]+)：<\/span><\/li>/)?.[1] || "");
+    while ((match = ulRegex.exec(text))) {
+        const block = match[1] || "";
+        const title = stripTags(block.match(/<li[^>]*>\s*<span[^>]*>\s*([\s\S]*?)\s*<\/span>\s*<\/li>/)?.[1] || "")
+            .replace(/[：:]\s*$/u, "")
+            .trim();
         if (!title) continue;
         const items = [...block.matchAll(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)].map((item) => ({
             name: stripTags(item[2]),
@@ -532,20 +633,90 @@ function resolveFilterHref(groups, key, value) {
     return "";
 }
 
+function parseObjectParam(value) {
+    if (value && typeof value === "object" && !Array.isArray(value)) return value;
+    const text = String(value || "").trim();
+    if (!text) return {};
+    try {
+        const parsed = JSON.parse(text);
+        return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+        return {};
+    }
+}
+
+function pickFilterValue(source = {}, keys = []) {
+    for (const key of keys) {
+        const value = source?.[key];
+        if (value === 0 || value === "0") return "0";
+        if (typeof value === "string" && value.trim()) return value.trim();
+        if (value !== undefined && value !== null && value !== "" && typeof value !== "object") {
+            return String(value).trim();
+        }
+    }
+    return "";
+}
+
+function normalizeCategoryFilters(params = {}) {
+    const merged = {
+        ...parseObjectParam(params?.ext),
+        ...parseObjectParam(params?.filter),
+        ...parseObjectParam(params?.extend),
+        ...parseObjectParam(params?.filters),
+    };
+    return {
+        genre: normalizeFilterValue("genre", pickFilterValue(merged, ["genre", "class", "type", "cate", "subType", "subtype", "剧情", "类型"])),
+        area: normalizeFilterValue("area", pickFilterValue(merged, ["area", "region", "地区"])),
+        year: normalizeFilterValue("year", pickFilterValue(merged, ["year", "年份"])),
+        lang: normalizeFilterValue("lang", pickFilterValue(merged, ["lang", "language", "语言"])),
+        sort: normalizeFilterValue("sort", pickFilterValue(merged, ["sort", "by", "order", "排序"])),
+    };
+}
+
+function findCategoryPageHref(html = "", targetPage = 1) {
+    const text = String(html || "");
+    if (targetPage <= 1) return "";
+    const exact = text.match(new RegExp(`<a[^>]*href="([^"]+)"[^>]*>\\s*${targetPage}\\s*<\\/a>`, "i"))?.[1];
+    if (exact) return fixUrl(exact);
+    return "";
+}
+
+async function resolveCategoryPageUrl(baseUrl, targetPage = 1) {
+    if (targetPage <= 1) return fixUrl(baseUrl);
+    let currentUrl = fixUrl(baseUrl);
+    let currentPage = 1;
+    while (currentPage < targetPage) {
+        const html = await fetchHtml(currentUrl, { ttl: FILTER_CACHE_TTL });
+        const directHref = findCategoryPageHref(html, targetPage);
+        if (directHref) return directHref;
+        const nextHref = findCategoryPageHref(html, currentPage + 1)
+            || (targetPage === currentPage + 1 ? fixUrl(html.match(/<a[^>]*href="([^"]+)"[^>]*>\s*下一页\s*<\/a>/)?.[1] || "") : "");
+        if (!nextHref || nextHref === currentUrl) {
+            logInfo("category 分页到达末页", { baseUrl: currentUrl.replace(getCurrentHost(), ""), targetPage, currentPage });
+            return "";
+        }
+        currentUrl = nextHref;
+        currentPage += 1;
+    }
+    return currentUrl;
+}
+
 async function resolveCategoryUrl(categoryId, page, filters = {}) {
-    const filterKey = buildCacheKey("libvio:category-filter-url", categoryId, page, JSON.stringify(filters || {}));
+    const normalizedFilters = normalizeCategoryFilters({ filters });
+    const filterKey = buildCacheKey("libvio:category-filter-url", categoryId, page, JSON.stringify(normalizedFilters));
     return await getCachedText(filterKey, FILTER_CACHE_TTL, async () => {
-        let currentUrl = fixUrl(getCategoryBasePath(categoryId, page));
+        let currentUrl = fixUrl(getCategoryBasePath(categoryId, 1));
         const order = ["genre", "area", "year", "lang", "sort"];
 
         for (const key of order) {
+            if (!normalizedFilters[key]) continue;
             const html = await fetchHtml(currentUrl, { ttl: FILTER_CACHE_TTL });
             const groups = parseFilterGroups(html);
-            const targetHref = resolveFilterHref(groups, key, filters[key]);
+            const targetHref = resolveFilterHref(groups, key, normalizedFilters[key]);
             if (targetHref) currentUrl = targetHref;
         }
 
-        return currentUrl;
+        return await resolveCategoryPageUrl(currentUrl, page);
     });
 }
 
@@ -564,39 +735,171 @@ async function fetchHtml(url, options = {}) {
 }
 
 function parseVodList(html = "") {
-    const results = [];
-    const regex = /<div class="stui-vodlist__box">([\s\S]*?)<\/div>\s*<\/li>/g;
-    let match;
-    while ((match = regex.exec(html))) {
-        const block = match[1];
-        const href = block.match(/href="([^"]*\/detail\/\d+\.html)"/);
-        const title = block.match(/title="([^"]+)"/);
-        const pic = block.match(/data-original="([^"]+)"/);
-        const remark = block.match(/<span class="pic-text[^>]*">([\s\S]*?)<\/span>/);
-        const score = block.match(/<span class="pic-tag[^>]*">([\s\S]*?)<\/span>/);
-        if (!href || !title) continue;
-        results.push({
-            vod_id: fixUrl(href[1]),
-            vod_name: stripTags(title[1]),
-            vod_pic: fixUrl(pic?.[1] || ""),
-            vod_remarks: stripTags(remark?.[1] || score?.[1] || ""),
-            vod_score: stripTags(score?.[1] || "")
-        });
+    const text = String(html || "");
+    const candidates = [];
+
+    const patterns = [
+        /<li[^>]*>[\s\S]*?<a[^>]*href="([^"]*\/detail\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>[\s\S]*?<\/li>/g,
+        /<a[^>]*href="([^"]*\/detail\/\d+\.html)"[^>]*title="([^"]+)"[^>]*>[\s\S]*?(?:<\/a>)/g,
+    ];
+
+    for (const regex of patterns) {
+        let match;
+        while ((match = regex.exec(text))) {
+            const whole = match[0] || "";
+            const href = fixUrl(match[1] || "");
+            const title = stripTags(match[2] || "");
+            if (!href || !title) continue;
+            const pic = fixUrl(
+                whole.match(/data-original="([^"]+)"/)?.[1]
+                || whole.match(/data-src="([^"]+)"/)?.[1]
+                || whole.match(/src="([^"]+)"/)?.[1]
+                || ""
+            );
+            const remark = stripTags(
+                whole.match(/<span class="pic-text[^>]*">([\s\S]*?)<\/span>/)?.[1]
+                || whole.match(/<span class="jidi[^>]*">([\s\S]*?)<\/span>/)?.[1]
+                || whole.match(/<p class="remarks[^>]*">([\s\S]*?)<\/p>/)?.[1]
+                || ""
+            );
+            const score = stripTags(
+                whole.match(/<span class="pic-tag[^>]*">([\s\S]*?)<\/span>/)?.[1]
+                || whole.match(/<span class="score[^>]*">([\s\S]*?)<\/span>/)?.[1]
+                || ""
+            );
+            candidates.push({
+                vod_id: href,
+                vod_name: title,
+                vod_pic: pic,
+                vod_remarks: remark || score,
+                vod_score: score,
+            });
+        }
+        if (candidates.length >= 12) break;
     }
-    return results;
+
+    const dedup = [];
+    const seen = new Set();
+    for (const item of candidates) {
+        const key = `${item.vod_id}@@${item.vod_name}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        dedup.push(item);
+    }
+    return dedup;
 }
 
 function normalizePanSourceName(name = "") {
     const text = stripTags(name);
+    if (/UC/i.test(text)) return "UC网盘";
+    if (/百度/i.test(text)) return "百度网盘";
+    if (/夸克/i.test(text)) return "夸克网盘";
+    if (/天翼/i.test(text)) return "天翼网盘";
+    if (/115/i.test(text)) return "115网盘";
+    if (/迅雷/i.test(text)) return "迅雷网盘";
+    if (/阿里|ALi|Ali/i.test(text)) return "阿里网盘";
+    if (/123/i.test(text)) return "123网盘";
     const match = text.match(/\(([^()]+)\)/);
     if (match?.[1]) return match[1].trim();
     return text.replace(/^视频下载\s*/u, "").trim() || text;
 }
 
 function splitNetdiskPanels(html = "") {
-    const marker = '<div class="playlist-panel netdisk-panel">';
-    const pieces = String(html || "").split(marker);
-    return pieces.slice(1).map((part) => marker + part);
+    const text = String(html || "");
+    const panels = [];
+
+    // LIBVIO 详情页常见结构：<div class="stui-vodlist__head"><h3>UC网盘</h3></div><ul>...</ul>
+    // 标题与 ul 之间有 </div>，不能只匹配 h3 后紧跟 ul。
+    const regex = /<div class="stui-vodlist__head"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?(?:网盘|视频下载)[\s\S]*?)<\/h3>[\s\S]*?<\/div>\s*<ul[^>]*>([\s\S]*?)<\/ul>/gi;
+    let match;
+    while ((match = regex.exec(text))) {
+        panels.push(`<h3>${match[1] || "网盘"}</h3><ul>${match[2] || ""}</ul>`);
+    }
+
+    logInfo("detail 网盘面板提取", { count: panels.length, titles: panels.map((panel) => stripTags(panel.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] || "")).join(" | ") });
+    return panels;
+}
+
+function isCollectPlayHref(url = "") {
+    return /\/play\/[^/?#]+\.html(?:[?#].*)?$/i.test(String(url || "").trim());
+}
+
+function extractPlaylistSources(html = "", videoId = "", vodName = "") {
+    const text = String(html || "");
+    const sources = [];
+    const seenSources = new Set();
+    const patterns = [
+        /<div class="stui-vodlist__head"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>[\s\S]*?<\/div>\s*<ul class="stui-content__playlist[^"]*"[^>]*>([\s\S]*?)<\/ul>/g,
+        /<div class="playlist-panel(?:\s+netdisk-panel)?"[^>]*>[\s\S]*?<h3[^>]*>([\s\S]*?)<\/h3>[\s\S]*?<ul[^>]*>([\s\S]*?)<\/ul>/g,
+        /<div class="module-tab-item[^"]*"[^>]*>([\s\S]*?)<\/div>\s*<div class="module-play-list[^"]*"[^>]*>([\s\S]*?)<\/div>/g,
+    ];
+
+    for (const regex of patterns) {
+        let match;
+        while ((match = regex.exec(text))) {
+            const sourceName = stripTags(match[1] || "播放").replace(/^播放线路[：:]?/u, "").trim();
+            if (!sourceName || /猜你喜欢|相关推荐/i.test(sourceName)) continue;
+            const listHtml = match[2] || "";
+            const episodes = [];
+            const seenEpisodes = new Set();
+
+            for (const item of listHtml.matchAll(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)) {
+                const playUrl = fixUrl(item[1] || "");
+                if (!isCollectPlayHref(playUrl)) continue;
+                const episodeName = stripTags(item[2] || "") || `第${episodes.length + 1}集`;
+                const dedupeKey = `${playUrl}@@${episodeName}`;
+                if (seenEpisodes.has(dedupeKey)) continue;
+                seenEpisodes.add(dedupeKey);
+                const episodeIndex = episodes.length;
+                const fid = `${videoId}#${sourceName}#${episodeIndex}`;
+                const meta = {
+                    mode: "collect",
+                    url: playUrl,
+                    flag: sourceName,
+                    name: episodeName,
+                    v: vodName,
+                    e: episodeName,
+                    sid: videoId,
+                    fid,
+                    t: sourceName,
+                    i: episodeIndex,
+                };
+                episodes.push({
+                    name: episodeName,
+                    playId: `${playUrl}|||${encodePlayId(meta)}`,
+                    _fid: fid,
+                    _rawName: episodeName,
+                });
+            }
+
+            if (!episodes.length) continue;
+            const sourceKey = `${sourceName}@@${episodes.map((ep) => ep.playId).join("|")}`;
+            if (seenSources.has(sourceKey)) continue;
+            seenSources.add(sourceKey);
+            sources.push({ name: sourceName, episodes });
+        }
+    }
+
+    return sources;
+}
+
+function buildLegacyPlayFields(playSources = []) {
+    const sourceNames = [];
+    const sourceUrls = [];
+    for (const source of playSources || []) {
+        const episodes = Array.isArray(source?.episodes) ? source.episodes : [];
+        if (!episodes.length) continue;
+        sourceNames.push(String(source.name || "播放").trim() || "播放");
+        sourceUrls.push(episodes.map((ep, index) => {
+            const episodeName = String(ep?.name || `第${index + 1}集`).replace(/[#$]/g, " ").trim() || `第${index + 1}集`;
+            const playId = String(ep?.playId || "").trim();
+            return playId ? `${episodeName}$${playId}` : "";
+        }).filter(Boolean).join("#"));
+    }
+    return {
+        vod_play_from: sourceNames.join("$$$"),
+        vod_play_url: sourceUrls.join("$$$"),
+    };
 }
 
 function parseMetaItems(html = "") {
@@ -819,7 +1122,15 @@ async function home(params, context) {
     try {
         logInfo("home 进入", { params, host: getCurrentHost(), from: context?.from || "web" });
         const html = await fetchHtml("/", { ttl: HOME_CACHE_TTL });
-        const list = parseVodList(html).slice(0, 24);
+        let list = parseVodList(html).slice(0, 24);
+
+        if (!list.length) {
+            logInfo("home 主站首页解析为空，尝试分类页回退", { fallback: "/type/1.html" });
+            const fallbackHtml = await fetchHtml("/type/1.html", { ttl: HOME_CACHE_TTL });
+            list = parseVodList(fallbackHtml).slice(0, 24);
+            logInfo("home 分类页回退完成", { fallbackListCount: list.length });
+        }
+
         const classes = CLASS_LIST.map((item) => ({ ...item }));
         const filters = {};
         for (const item of classes) {
@@ -836,13 +1147,17 @@ async function home(params, context) {
 async function category(params, context) {
     const categoryId = String(params?.categoryId || "1");
     const page = Number(params?.page || 1);
-    const filters = params?.filters || {};
+    const filters = normalizeCategoryFilters(params);
     try {
         const finalUrl = await resolveCategoryUrl(categoryId, page, filters);
-        logInfo("category 请求", { categoryId, page, filters, host: getCurrentHost(), path: finalUrl.replace(getCurrentHost(), ""), from: context?.from || "web" });
+        if (!finalUrl) {
+            logInfo("category 无可用分页链接，返回空页", { categoryId, page });
+            return { ...emptyPage(page - 1), filters: buildFilterList(categoryId) };
+        }
+        logInfo("category 请求", { categoryId, page, filters, rawFilters: { filters: params?.filters || {}, extend: params?.extend || {}, ext: params?.ext || {}, filter: params?.filter || {} }, host: getCurrentHost(), path: finalUrl.replace(getCurrentHost(), ""), from: context?.from || "web" });
         const html = await fetchHtml(finalUrl, { ttl: CATEGORY_CACHE_TTL });
         const list = parseVodList(html);
-        const hasNext = html.includes(`>${page + 1}<`) || html.includes(`-${page + 1}---`) || html.includes(`下一页`);
+        const hasNext = Boolean(findCategoryPageHref(html, page + 1));
         const pagecount = list.length === DEFAULT_PAGE_SIZE && hasNext ? page + 1 : (page > 1 || list.length ? page : 0);
         logInfo("category 完成", { categoryId, page, listCount: list.length, pagecount });
         return {
@@ -853,7 +1168,10 @@ async function category(params, context) {
             filters: buildFilterList(categoryId),
             list
         };
+
     } catch (error) {
+
+
         logError("category 失败", error);
         return { ...emptyPage(page), filters: buildFilterList(categoryId) };
     }
@@ -877,246 +1195,448 @@ async function detail(params, context) {
         const actor = metaItems.find((item) => item.startsWith("主演："))?.replace(/^主演：/, "") || "";
         const director = metaItems.find((item) => item.startsWith("导演："))?.replace(/^导演：/, "") || "";
 
-        const sourceMatches = [...html.matchAll(/<div class="playlist-panel">([\s\S]*?)<\/ul>/g)];
-        const collectSources = sourceMatches.map((matched, sourceIndex) => {
-            const block = matched[1];
-            const sourceName = stripTags(block.match(/<h3>([\s\S]*?)<\/h3>/)?.[1] || "播放");
-            const episodes = [...block.matchAll(/href="([^"]*\/play\/[^\"]+\.html)"[^>]*>([\s\S]*?)<\/a>/g)].map((item, episodeIndex) => {
-                const episodeName = stripTags(item[2]);
-                const playUrl = fixUrl(item[1]);
-                const fid = `${videoId}#${sourceIndex}#${episodeIndex}`;
-                const meta = {
-                    mode: "collect",
-                    url: playUrl,
-                    flag: sourceName,
-                    name: episodeName,
-                    v: name,
-                    e: episodeName,
-                    sid: videoId,
-                    fid,
-                    t: sourceName,
-                    i: episodeIndex,
-                };
-                return {
-                    name: episodeName,
-                    playId: `${playUrl}|||${encodePlayId(meta)}`,
-                    _fid: fid,
-                    _rawName: episodeName,
-                };
-            });
-            return { name: sourceName, episodes };
-        }).filter((item) => item.episodes.length && !/视频下载|网盘|夸克|uc|百度|阿里|迅雷|115|123pan/i.test(item.name || ""));
+        const allCollectSources = extractPlaylistSources(html, videoId, name);
 
         const netdiskPanels = splitNetdiskPanels(html);
         const netdiskSources = [];
+        const processedHrefs = new Set();
         for (const panelHtml of netdiskPanels) {
-            const sourceName = normalizePanSourceName(panelHtml.match(/<h3>([\s\S]*?)<\/h3>/)?.[1] || "网盘");
-            const shareItems = [...panelHtml.matchAll(/<a class="netdisk-item"[^>]*href="([^"]+)"[^>]*>[\s\S]*?<span class="netdisk-name">([\s\S]*?)<\/span>[\s\S]*?<span class="netdisk-url">([\s\S]*?)<\/span>/g)];
+            const rawSourceTitle = stripTags(panelHtml.match(/<h3[^>]*>([\s\S]*?)<\/h3>/)?.[1] || "网盘");
+            if (!/(网盘|下载)/u.test(rawSourceTitle)) {
+                logInfo("detail 跳过非网盘/下载线路", { sourceName: rawSourceTitle });
+                continue;
+            }
+            const sourceName = normalizePanSourceName(rawSourceTitle);
+            // 记录正在处理的网盘/下载线路（包括 UC）
+            logInfo("detail 开始处理网盘线路", { sourceName, rawTitle: rawSourceTitle });
+            const playLinks = [...panelHtml.matchAll(/<a[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/g)];
             const episodes = [];
-            for (const item of shareItems) {
-                const shareUrl = normalizeShareUrl(stripTags(item[3] || item[1] || "").trim());
-                if (!isPanUrl(shareUrl)) continue;
-                const panInfo = await loadPanFiles(shareUrl);
-                const files = Array.isArray(panInfo?.videos) ? panInfo.videos : [];
-                if (!files.length) continue;
-                for (const file of files) {
-                    const fileId = getFileId(file);
-                    if (!fileId) continue;
-                    const fileName = getFileName(file) || stripTags(item[2] || "网盘资源").trim();
-                    episodes.push({
-                        name: fileName,
-                        playId: buildPanEpisodePlayId(shareUrl, fileId, {
-                            mode: "pan-file",
-                            shareUrl,
-                            fileId,
-                            flag: sourceName,
-                            name: fileName,
-                            vodName: name,
-                            vodId: String(videoId || "")
-                        })
-                    });
+            for (const item of playLinks) {
+                const href = fixUrl(item[1] || "");
+                if (!/\/play\/[^\/]+\.html/i.test(href)) continue;
+                if (processedHrefs.has(href)) continue;
+                const label = stripTags(item[2] || "").trim() || "合集";
+                const linkTextForPan = `${rawSourceTitle} ${label}`;
+                if (!/(网盘|下载)/u.test(linkTextForPan)) continue;
+                processedHrefs.add(href);
+                const playPageHtml = await fetchHtml(href, { ttl: DETAIL_CACHE_TTL });
+                const playerJson = playPageHtml.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})<\/script>/)?.[1];
+                let episodeList = [];
+                // 如果没有 playerJson 且是 UC 网盘，尝试直接用 href 作为分享链接解析
+                if (!playerJson && /UC/i.test(sourceName)) {
+                    // UC 的播放页本身不是网盘链接，尝试在页面源码里寻找真实的 UC 分享链接
+                    const possibleUrls = [];
+                    const ucUrlMatch = playPageHtml.match(/https?:\/\/[^\s'"<>]*drive\.uc\.cn[^\s'"<>]*/i);
+                    if (ucUrlMatch) possibleUrls.push(ucUrlMatch[0]);
+                    const ucAltMatch = playPageHtml.match(/https?:\/\/[^\s'"<>]*uc\.cn\/s\/[^\s'"<>]*/i);
+                    if (ucAltMatch) possibleUrls.push(ucAltMatch[0]);
+                    let found = false;
+                    for (const shareUrl of possibleUrls) {
+                        if (isPanUrl(shareUrl)) {
+                            const panInfo = await loadPanFiles(shareUrl);
+                            episodeList = Array.isArray(panInfo?.videos) ? panInfo.videos : [];
+                            if (episodeList.length) {
+                                logInfo("detail UC 网盘通过页面提取解析成功", { sourceName, href, shareUrl, episodeCount: episodeList.length });
+                                found = true;
+                                break;
+                            } else {
+                                logInfo("detail UC 网盘通过页面提取无文件", { sourceName, href, shareUrl });
+                            }
+                        }
+                    }
+                    if (!found) {
+                        logInfo("detail UC 网盘未能提取有效分享链接", { sourceName, href });
+                    }
+                }
+                if (playerJson) {
+                    try {
+                        const player = JSON.parse(playerJson);
+                        const rawFrom = String(player.from || "").toLowerCase();
+                        const isPan = rawFrom.includes("uc") || rawFrom.includes("pan") || rawFrom.includes("baidu") || rawFrom.includes("quark") || rawFrom.includes("ali");
+                        if (isPan && player.url) {
+                            const shareUrl = normalizeShareUrl(decodePlayerUrl(player.url, player.encrypt));
+                            if (isPanUrl(shareUrl)) {
+                                const panInfo = await loadPanFiles(shareUrl);
+                                episodeList = Array.isArray(panInfo?.videos) ? panInfo.videos : [];
+                            }
+                        }
+                    } catch (error) {
+                        logInfo("detail 网盘播放页解析失败", { href, error: error.message });
+                    }
+                }
+
+                if (episodeList.length > 0) {
+                    for (const file of episodeList) {
+                        const fileId = getFileId(file);
+                        if (!fileId) continue;
+                        const rawFileName = getFileName(file) || label || "网盘资源";
+                        const episodeName = /第\d+集/.test(rawFileName) ? rawFileName : (rawFileName !== "合集" ? rawFileName : (remarks.match(/第\d+集/)?.[0] || rawFileName));
+                        episodes.push({
+                            name: episodeName,
+                            playId: buildPanEpisodePlayId(normalizeShareUrl(decodePlayerUrl(playerJson ? JSON.parse(playerJson).url : "", playerJson ? JSON.parse(playerJson).encrypt : 0)), fileId, {
+                                mode: "pan-file",
+                                shareUrl: normalizeShareUrl(decodePlayerUrl(playerJson ? JSON.parse(playerJson).url : "", playerJson ? JSON.parse(playerJson).encrypt : 0)),
+                                fileId,
+                                flag: sourceName,
+                                name: episodeName,
+                                vodName: name,
+                                vodId: String(videoId || "")
+                            })
+                        });
+                    }
+                } else {
+                    // 没有展开到具体文件时，不要把“合集”当做一集；直接跳过这个网盘源
+                    logInfo("detail 网盘线路无具体集数，跳过合集占位", { sourceName, href, label });
+                }
+            }
+            if (episodes.length) {
+                logInfo("detail 网盘线路解析完成", { sourceName, episodeCount: episodes.length });
+                netdiskSources.push({ name: sourceName, episodes });
+            } else {
+                logInfo("detail 网盘线路解析失败，已排除", { sourceName, playLinkCount: playLinks.length });
+            }
+        }
+
+        // 过滤掉已经展开的网盘线路以及 UC 网盘（目前不解析）
+        const parsedNetdiskSourceNames = new Set(netdiskSources.map((source) => source.name));
+        // 处理 UC 网盘可能被误放入 collectSources 的情况
+        const ucCollectSources = allCollectSources.filter((src) => normalizePanSourceName(src?.name || "") === "UC网盘");
+        for (const src of ucCollectSources) {
+            const rawSourceTitle = src.name || "UC网盘";
+            const sourceName = normalizePanSourceName(rawSourceTitle);
+            logInfo("detail 开始处理 UC 网盘采集线路", { sourceName, rawSourceTitle });
+            const episodes = [];
+            for (const ep of src.episodes || []) {
+                // ep.playId 在 collectSources 里是普通集合链接 (play page)
+                const href = fixUrl((ep.playId || "").split("|||")[0] || "");
+                if (!href) continue;
+                const playPageHtml = await fetchHtml(href, { ttl: DETAIL_CACHE_TTL });
+                // 首先尝试直接从 player_aaaa 中取分享链接（UC 典型）
+                let resolvedShareUrl = "";
+                try {
+                    const playerJsonMatch = playPageHtml.match(/player_aaaa\s*=\s*(\{[\s\S]*?\})<\/script>/);
+                    if (playerJsonMatch) {
+                        const player = JSON.parse(playerJsonMatch[1]);
+                        if (player && typeof player.url === "string" && isPanUrl(player.url)) {
+                            resolvedShareUrl = player.url;
+                        }
+                    }
+                } catch (e) {
+                    logInfo("detail UC 解析 player_aaaa 失败", { sourceName, href, error: e.message });
+                }
+                // 若未从 player_aaaa 取到，再尝试正则匹配普通 UC 分享链接
+                const possibleUrls = [];
+                if (resolvedShareUrl) {
+                    possibleUrls.push(resolvedShareUrl);
+                } else {
+                    const ucUrlMatch = playPageHtml.match(/https?:\/\/[^\s'"<>]*drive\.uc\.cn[^\s'"<>]*/i);
+                    if (ucUrlMatch) possibleUrls.push(ucUrlMatch[0]);
+                    const ucAltMatch = playPageHtml.match(/https?:\/\/[^\s'"<>]*uc\.cn\/s\/[^\s'"<>]*/i);
+                    if (ucAltMatch) possibleUrls.push(ucAltMatch[0]);
+                }
+                let found = false;
+                for (const shareUrl of possibleUrls) {
+                    if (!isPanUrl(shareUrl)) continue;
+                    const panInfo = await loadPanFiles(shareUrl);
+                    const videoList = panInfo?.videos || [];
+                    if (videoList.length) {
+                        for (const file of videoList) {
+                            const fileId = getFileId(file);
+                            const rawFileName = getFileName(file);
+                            const episodeName = /第\d+集/.test(rawFileName) ? rawFileName : (rawFileName || ep.name);
+                            episodes.push({
+                                name: episodeName,
+                                playId: buildPanEpisodePlayId(normalizeShareUrl(shareUrl), fileId, {
+                                    mode: "pan-file",
+                                    shareUrl: normalizeShareUrl(shareUrl),
+                                    fileId,
+                                    flag: sourceName,
+                                    name: episodeName,
+                                    vodName: name,
+                                    vodId: videoId
+                                })
+                            });
+                        }
+                        logInfo("detail UC 网盘通过采集线路解析成功", { sourceName, href, shareUrl, episodeCount: videoList.length });
+                        found = true;
+                        break;
+                    } else {
+                        logInfo("detail UC 网盘通过采集线路解析无文件", { sourceName, href, shareUrl });
+                    }
+                }
+                if (!found) {
+                    logInfo("detail UC 网盘未能提取有效分享链接", { sourceName, href });
                 }
             }
             if (episodes.length) {
                 netdiskSources.push({ name: sourceName, episodes });
+            } else {
+                logInfo("detail UC 网盘解析失败，已排除", { sourceName });
             }
         }
-
+        const collectSources = allCollectSources.filter((source) => {
+            const normName = normalizePanSourceName(source?.name || "");
+            // 已经在 netdiskSources 中的（已展开）
+            if (parsedNetdiskSourceNames.has(normName)) return false;
+            // 已经在 UC 处理后加入 netdiskSources 的也排除
+            if (netdiskSources.some((s) => normalizePanSourceName(s.name) === normName)) return false;
+            return true;
+        });
+        if (allCollectSources.length !== collectSources.length) {
+            logInfo("detail 移除未展开或不支持的网盘线路", {
+                videoId,
+                removed: allCollectSources.length - collectSources.length,
+                parsedNetdiskSources: Array.from(parsedNetdiskSourceNames).join(" | ")
+            });
+        }
         const sortedNetdiskSources = sortPlaySourcesByDriveOrder(netdiskSources);
         const expandedNetdiskSources = expandPanSourcesWithRoutes(sortedNetdiskSources, context?.from || "web");
         const normalizedCollectSources = collectSources.map((source) => ({
             name: source.name,
             episodes: (source.episodes || []).map((ep) => ({ name: ep.name, playId: ep.playId }))
         }));
-        const vod_play_sources = [...normalizedCollectSources, ...expandedNetdiskSources];
-        for (const source of vod_play_sources) {
-            for (const ep of source.episodes || []) {
-                const decoded = decodeCombinedPlayId(ep.playId || "");
-                const meta = decoded.meta || {};
-                if (!meta.fid) {
-                    const fileId = String(meta.fileId || "").trim();
+
+        // --------- Unified scraping logic (replace previous per-source buckets) ---------
+        // 1️⃣ 把所有已经展开的网盘线路（netdiskSources）和普通采集线路（collectSources）统一放进 allSources
+        const allSources = [];
+        // 2️⃣ 为每条 episode 计算唯一的 fid（shareUrl|fileId），并收集成一次性刮削候选列表
+        const scrapeCandidates = [];
+        // ---- 处理已展开的网盘线路 ----
+        for (const src of netdiskSources) {
+            if (Array.isArray(src?.episodes) && src.episodes.length) {
+                src.episodes = src.episodes.map((ep) => {
+                    const meta = decodeCombinedPlayId(ep.playId || "")?.meta || {};
                     const shareUrl = String(meta.shareUrl || meta.shareURL || "").trim();
-                    if (shareUrl && fileId) {
-                        meta.fid = `${shareUrl}|${fileId}`;
-                        ep.playId = `${decoded.main}|||${encodePlayId(meta)}`;
-                    }
-                }
-            }
-        }
-        const scrapeSourceHints = [];
-        const scrapeSourceBuckets = [];
-        for (const source of collectSources) {
-            if (Array.isArray(source?.episodes) && source.episodes.length) {
-                scrapeSourceBuckets.push({
-                    name: source.name,
-                    episodes: source.episodes.map((ep) => ({ ...ep, _scrapeSourceType: "collect" }))
+                    const fileId = String(meta.fileId || meta.fid || "").trim();
+                    const fid = shareUrl && fileId ? `${shareUrl}|${fileId}` : (fileId || ep.playId);
+                    ep._fid = fid;
+                    return ep;
                 });
-                scrapeSourceHints.push(`${source.name || "采集"}:${source.episodes.length}`);
-            }
-        }
-        for (const source of netdiskSources) {
-            if (Array.isArray(source?.episodes) && source.episodes.length) {
-                scrapeSourceBuckets.push({
-                    name: source.name,
-                    episodes: source.episodes.map((ep, episodeIndex) => {
-                        const meta = decodeCombinedPlayId(ep.playId || "")?.meta || {};
-                        const shareUrl = String(meta.shareUrl || meta.shareURL || "").trim();
-                        const fileId = String(meta.fileId || meta.fid || "").trim();
-                        const fid = shareUrl && fileId ? `${shareUrl}|${fileId}` : (fileId || ep.playId);
-                        return {
-                            ...ep,
-                            _fid: fid,
-                            _rawName: ep.name || "正片",
-                            _scrapeSourceType: "pan",
-                            _scrapeMeta: {
-                                ...meta,
-                                fid,
-                                sid: String(meta.sid || meta.vodId || videoId || ""),
-                                i: Number.isFinite(Number(meta.i)) ? Number(meta.i) : episodeIndex,
-                            }
-                        };
-                    })
-                });
-                scrapeSourceHints.push(`${source.name || "网盘"}:${source.episodes.length}`);
-            }
-        }
-        logInfo("detail 线路统计", { videoId, collectSourceCount: collectSources.length, netdiskSourceCount: netdiskSources.length, scrapeSourceCount: scrapeSourceBuckets.length, scrapeSources: scrapeSourceHints.join(" | ") });
-        const result = {
-            list: [{
-                vod_id: videoId,
-                vod_name: name,
-                vod_pic: poster,
-                type_name: typeName,
-                vod_year: year,
-                vod_area: area,
-                vod_actor: actor,
-                vod_director: director,
-                vod_content: intro,
-                vod_douban_score: score.replace(/分$/, ""),
-                vod_remarks: stripTags(remarks),
-                vod_play_sources
-            }],
-            _play_sources_for_scrape: scrapeSourceBuckets,
-        };
-        const vod = result.list?.[0];
-        const scrapePlaySources = Array.isArray(result._play_sources_for_scrape) ? result._play_sources_for_scrape : vod?.vod_play_sources || [];
-        const canProcessScraping = typeof OmniBox.processScraping === "function";
-        const canGetScrapeMetadata = typeof OmniBox.getScrapeMetadata === "function";
-        if (!vod) {
-            logInfo("detail 跳过刮削", { videoId, reason: "vod 为空" });
-        } else if (!Array.isArray(scrapePlaySources) || scrapePlaySources.length === 0) {
-            logInfo("detail 无站内采集线路，跳过刮削", { videoId, sourceCount: Array.isArray(scrapePlaySources) ? scrapePlaySources.length : -1 });
-        } else if (!canProcessScraping || !canGetScrapeMetadata) {
-            logInfo("detail 宿主未提供刮削能力，跳过刮削", { videoId, hasProcessScraping: canProcessScraping, hasGetScrapeMetadata: canGetScrapeMetadata });
-        } else {
-            let scrapeData = null;
-            let videoMappings = [];
-            const scrapeCandidates = [];
-            for (const source of scrapePlaySources) {
-                for (const ep of source.episodes || []) {
-                    const fid = ep._fid || decodePlayId(String(ep.playId || "").split("|||")[1] || "")?.fid || ep.playId;
-                    if (!fid) continue;
+                allSources.push(src);
+                for (const ep of src.episodes) {
+                    if (!ep._fid) continue;
                     scrapeCandidates.push({
-                        fid,
-                        file_id: fid,
-                        file_name: ep._rawName || ep.name || "正片",
-                        name: ep._rawName || ep.name || "正片",
+                        fid: ep._fid,
+                        file_id: ep._fid,
+                        file_name: ep.name || "正片",
+                        name: ep.name || "正片",
                         format_type: "video",
                     });
                 }
             }
-            logInfo("detail 刮削候选", { videoId, count: scrapeCandidates.length, preview: scrapeCandidates.slice(0, 3).map((item) => `${item.fid}=>${item.file_name}`).join(" | ") });
-            if (scrapeCandidates.length === 0) {
-                logInfo("detail 刮削候选为空，跳过刮削", { videoId, sourceNames: scrapePlaySources.map((item) => item?.name || "") });
-            }
-            if (scrapeCandidates.length > 0) {
-                try {
-                    const scrapeKeyword = normalizeText(vod.vod_name || name || "");
-                    const scrapingResult = await OmniBox.processScraping(videoId, scrapeKeyword, scrapeKeyword, scrapeCandidates);
-                    logInfo("detail 刮削完成", { videoId, keyword: scrapeKeyword, result: JSON.stringify(scrapingResult || {}).slice(0, 200) });
-                    const metadata = await OmniBox.getScrapeMetadata(videoId);
-                    scrapeData = metadata?.scrapeData || null;
-                    videoMappings = Array.isArray(metadata?.videoMappings) ? metadata.videoMappings : [];
-                    logInfo("detail 刮削元数据", {
-                        videoId,
-                        hasScrapeData: !!scrapeData,
-                        mappings: videoMappings.length,
-                        scrapeType: metadata?.scrapeType || "",
-                        mappingPreview: buildMappingPreview(videoMappings),
-                        candidatePreview: scrapeCandidates.slice(0, 3).map((item) => item.file_id || item.fid || "<empty>").join(" | ")
+        }
+        // ---- 处理普通采集线路（如果有展开文件） ----
+        for (const src of collectSources) {
+            if (Array.isArray(src?.episodes) && src.episodes.length) {
+                src.episodes = src.episodes.map((ep) => {
+                    const meta = decodeCombinedPlayId(ep.playId || "")?.meta || {};
+                    const shareUrl = String(meta.shareUrl || meta.shareURL || "").trim();
+                    const fileId = String(meta.fileId || meta.fid || "").trim();
+                    const fid = shareUrl && fileId ? `${shareUrl}|${fileId}` : (fileId || ep.playId);
+                    ep._fid = fid;
+                    return ep;
+                });
+                allSources.push(src);
+                for (const ep of src.episodes) {
+                    if (!ep._fid) continue;
+                    scrapeCandidates.push({
+                        fid: ep._fid,
+                        file_id: ep._fid,
+                        file_name: ep.name || "正片",
+                        name: ep.name || "正片",
+                        format_type: "video",
                     });
-                } catch (error) {
-                    logInfo("detail 刮削失败", { videoId, error: error.message });
                 }
             }
-            logInfo("detail 刮削后状态", {
-                videoId,
-                hasScrapeData: !!scrapeData,
-                mappingCount: Array.isArray(videoMappings) ? videoMappings.length : 0,
-                scrapePlaySourceCount: scrapePlaySources.length,
-                vodPlaySourceCount: Array.isArray(vod?.vod_play_sources) ? vod.vod_play_sources.length : 0,
-            });
-            if (scrapeData) {
-                vod.vod_name = scrapeData.title || vod.vod_name;
-                if (scrapeData.posterPath) {
-                    vod.vod_pic = `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`;
-                }
-                if (scrapeData.overview) {
-                    vod.vod_content = scrapeData.overview;
+        }
+        logInfo("detail 刮削候选", {
+            videoId,
+            count: scrapeCandidates.length,
+            preview: scrapeCandidates.slice(0, 3).map((i) => `${String(i.fid || "").split("|").slice(-1)[0] || "unknown"}=>${i.file_name}`).join(" | ")
+        });
+        // --------- 一次统一刮削 ---------
+        let scrapeData = null;
+        let videoMappings = [];
+        if (scrapeCandidates.length) {
+            const keyword = normalizeText(name || "");
+            try {
+                await OmniBox.processScraping(videoId, keyword, keyword, scrapeCandidates);
+                const metadata = await OmniBox.getScrapeMetadata(videoId);
+                scrapeData = metadata?.scrapeData || null;
+                videoMappings = Array.isArray(metadata?.videoMappings) ? metadata.videoMappings : [];
+                logInfo("detail 刮削完成", { videoId, keyword, mappings: videoMappings.length });
+            } catch (e) {
+                logInfo("detail 刮削失败", { videoId, error: e.message });
+            }
+        } else {
+            logInfo("detail 刮削候选为空，跳过刮削", { videoId });
+        }
+        // --------- 将刮削映射回填到每条 episode 上，并在回填后按集数排序 ---------
+        const mappingMap = new Map();
+        for (const mapping of videoMappings) {
+            if (!mapping || typeof mapping !== "object") continue;
+            const keys = [mapping.fileId, mapping.file_id, mapping.fid]
+                .map((item) => String(item || "").trim())
+                .filter(Boolean);
+            for (const key of keys) {
+                if (!mappingMap.has(key)) {
+                    mappingMap.set(key, mapping);
                 }
             }
-            for (const source of vod.vod_play_sources || []) {
-                for (const ep of source.episodes || []) {
-                    if (!String(ep.playId || "").includes("|||")) continue;
-                    const [mainPlayId, metaB64] = String(ep.playId || "").split("|||");
-                    const meta = decodePlayId(metaB64 || "");
-                    const fid = meta?.fid;
-                    if (!fid) continue;
-                    const mapping = videoMappings.find((item) => item?.fileId === fid);
-                    if (!mapping) {
-                        logInfo("detail 分集未命中刮削映射", {
-                            fid,
-                            episodeName: ep.name || "",
-                            mappingPreview: buildMappingPreview(videoMappings),
-                        });
-                        continue;
-                    }
-                    const oldName = ep.name;
-                    const newName = buildScrapedEpisodeName(scrapeData, mapping, oldName);
-                    if (newName && newName !== oldName) {
-                        ep.name = newName;
-                        logInfo("detail 应用刮削分集名", { from: oldName, to: newName, fid });
-                    }
-                    meta.e = ep.name;
-                    meta.s = mapping.seasonNumber;
-                    meta.n = mapping.episodeNumber;
-                    ep.playId = `${mainPlayId}|||${encodePlayId(meta)}`;
+        }
+        for (const src of allSources) {
+            for (const ep of src.episodes || []) {
+                const fid = String(ep?._fid || "").trim();
+                if (!fid) continue;
+                const mapping = mappingMap.get(fid);
+                const fidLog = fid.split("|").slice(-1)[0] || fid;
+                if (!mapping) {
+                    logInfo("detail 分集未命中刮削映射", { fid: fidLog, episodeName: ep.name });
+                    continue;
                 }
-                source.episodes = sortEpisodesByMeta(source.episodes || []);
+                const oldName = ep.name || "";
+                const newName = buildScrapedEpisodeName(scrapeData, mapping, oldName);
+                if (newName && newName !== oldName) {
+                    ep.name = newName;
+                    logInfo("detail 应用刮削分集名", { fid: fidLog, from: oldName, to: newName });
+                }
+                const decoded = decodeCombinedPlayId(ep.playId || "");
+                const meta = decoded?.meta || {};
+                meta.fid = fid;
+                meta.e = ep.name;
+                meta.sid = meta.sid || videoId;
+                meta.vodId = meta.vodId || videoId;
+                meta.vodName = meta.vodName || name;
+                if (mapping.seasonNumber !== undefined && mapping.seasonNumber !== null) meta.s = mapping.seasonNumber;
+                if (mapping.episodeNumber !== undefined && mapping.episodeNumber !== null) meta.n = mapping.episodeNumber;
+                ep.playId = `${decoded?.main || ""}|||${encodePlayId(meta)}`;
+            }
+            if (Array.isArray(src.episodes)) {
+                src.episodes = sortEpisodesByMeta(src.episodes);
             }
         }
 
-        logInfo("detail 完成", { videoId, sourceCount: vod_play_sources.length, episodeCount: vod_play_sources.reduce((n, item) => n + item.episodes.length, 0) });
+        // --------- 合并并去重所有来源 ---------
+        const mergedPlaySourcesMap = new Map();
+        for (const src of allSources) {
+            const sourceName = String(src?.name || "").trim();
+            if (!sourceName) continue;
+            if (!mergedPlaySourcesMap.has(sourceName)) {
+                mergedPlaySourcesMap.set(sourceName, { name: sourceName, episodes: [] });
+            }
+            const target = mergedPlaySourcesMap.get(sourceName);
+            const seen = new Set(target.episodes.map((e) => e.playId));
+            for (const ep of src.episodes || []) {
+                if (!ep.playId || seen.has(ep.playId)) continue;
+                target.episodes.push(ep);
+                seen.add(ep.playId);
+            }
+            target.episodes = sortEpisodesByMeta(target.episodes);
+        }
+        const vod_play_sources = Array.from(mergedPlaySourcesMap.values()).filter((s) => s.episodes && s.episodes.length);
+
+        // --------- 排序并展开线路（保持原有的 drive 排序、路由逻辑） ---------
+        const sortedFinalPlaySources = sortPlaySourcesByDriveOrder(vod_play_sources);
+        const expandedFinalPlaySources = expandPanSourcesWithRoutes(sortedFinalPlaySources, context?.from || "web");
+
+        // --------- 刮削详情回填 ---------
+        let finalName = name;
+        let finalPoster = poster;
+        let finalTypeName = typeName;
+        let finalYear = year;
+        let finalArea = area;
+        let finalActor = actor;
+        let finalDirector = director;
+        let finalIntro = intro;
+        let finalScore = score.replace(/分$/, "");
+        const finalRemarks = stripTags(remarks);
+        let finalVodClass = "";
+
+        if (scrapeData && typeof scrapeData === "object") {
+            if (scrapeData.title) {
+                finalName = String(scrapeData.title).trim() || finalName;
+            }
+            if (scrapeData.posterPath) {
+                finalPoster = `https://image.tmdb.org/t/p/w500${scrapeData.posterPath}`;
+            }
+            const releaseDate = String(scrapeData.releaseDate || scrapeData.release_date || scrapeData.firstAirDate || scrapeData.first_air_date || scrapeData.seasonAirYear || "").trim();
+            if (releaseDate) {
+                finalYear = releaseDate.slice(0, 4) || finalYear;
+            }
+            if (scrapeData.overview) {
+                finalIntro = String(scrapeData.overview).trim() || finalIntro;
+            }
+            const voteAverage = Number(scrapeData.voteAverage ?? scrapeData.vote_average);
+            if (Number.isFinite(voteAverage) && voteAverage > 0) {
+                finalScore = voteAverage.toFixed(1);
+            }
+            const genreNames = Array.isArray(scrapeData.genres)
+                ? scrapeData.genres.map((item) => item?.name).filter(Boolean)
+                : [];
+            if (genreNames.length) {
+                finalTypeName = genreNames.join("/") || finalTypeName;
+                finalVodClass = genreNames.join(",");
+            }
+            const actorNames = Array.isArray(scrapeData.credits?.cast)
+                ? scrapeData.credits.cast.slice(0, 5).map((item) => item?.name || item?.character || "").filter(Boolean)
+                : [];
+            if (actorNames.length) {
+                finalActor = actorNames.join(",");
+            } else if (scrapeData.actors) {
+                finalActor = String(scrapeData.actors).trim() || finalActor;
+            }
+            const directorNames = Array.isArray(scrapeData.credits?.crew)
+                ? scrapeData.credits.crew
+                    .filter((item) => item?.job === "Director" || item?.department === "Directing")
+                    .slice(0, 3)
+                    .map((item) => item?.name || "")
+                    .filter(Boolean)
+                : [];
+            if (directorNames.length) {
+                finalDirector = directorNames.join(",");
+            } else if (scrapeData.director) {
+                finalDirector = String(scrapeData.director).trim() || finalDirector;
+            }
+            const areaNames = [
+                ...(Array.isArray(scrapeData.productionCountries) ? scrapeData.productionCountries.map((item) => item?.name) : []),
+                ...(Array.isArray(scrapeData.originCountry) ? scrapeData.originCountry : []),
+                ...(Array.isArray(scrapeData.origin_country) ? scrapeData.origin_country : []),
+            ].map((item) => String(item || "").trim()).filter(Boolean);
+            if (areaNames.length) {
+                finalArea = Array.from(new Set(areaNames)).slice(0, 3).join("/");
+            }
+        }
+
+        // --------- 构建最终返回结构（不再使用 _play_sources_for_scrape） ---------
+        const result = {
+            list: [{
+                vod_id: videoId,
+                vod_name: finalName,
+                vod_pic: finalPoster,
+                type_name: finalTypeName,
+                vod_class: finalVodClass,
+                vod_year: finalYear,
+                vod_area: finalArea,
+                vod_actor: finalActor,
+                vod_director: finalDirector,
+                vod_content: finalIntro,
+                vod_douban_score: finalScore,
+                vod_remarks: finalRemarks,
+                vod_play_sources: expandedFinalPlaySources
+            }]
+        };
+        const vod = result.list?.[0];
+        if (vod) {
+            Object.assign(vod, buildLegacyPlayFields(vod.vod_play_sources || []));
+        }
+        logInfo("detail 完成", {
+            videoId,
+            sourceCount: vod_play_sources.length,
+            episodeCount: vod_play_sources.reduce((n, item) => n + item.episodes.length, 0),
+            scraped: !!scrapeData,
+            actor: finalActor,
+            director: finalDirector
+        });
         return result;
     } catch (error) {
         logError("detail 失败", error);
