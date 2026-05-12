@@ -2,7 +2,7 @@
 // @author 梦
 // @description 影视站：Gimy / gimy.now / gimyai.tw，支持首页、分类、详情、搜索与播放页嗅探
 // @dependencies cheerio,@types/opencc-js
-// @version 1.2.2
+// @version 1.2.4
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/Gimy剧迷.js
 
 const OmniBox = require("omnibox_sdk");
@@ -11,6 +11,7 @@ const cheerio = require("cheerio");
 
 const BASE_URL = "https://gimyai.tw";
 const UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/146.0.0.0 Safari/537.36";
+const DEFAULT_PLAY_SOURCE_ORDER = ["4K画质线路 ᴴᴰ", "超清线路 ᴴᴰ"];
 
 let simplifyConverter = null;
 let simplifyConverterName = "fallback-map";
@@ -212,6 +213,55 @@ function toDisplayText(value) {
   return convertTraditionalToSimplified(normalizeText(value));
 }
 
+function parsePlaySourceOrderConfig() {
+  const raw = String(process.env.GIMY_PLAY_SOURCE_ORDER || process.env.GIMY_SOURCE_ORDER || "").trim();
+  if (!raw) return DEFAULT_PLAY_SOURCE_ORDER;
+
+  if (raw.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map((item) => String(item || "").trim()).filter(Boolean);
+    } catch (_) {}
+  }
+
+  return raw.split(/[,\n|;]+/).map((item) => item.trim()).filter(Boolean);
+}
+
+function normalizePlaySourceKey(value) {
+  return toDisplayText(value)
+    .replace(/[ᴴＨｈ]/g, "H")
+    .replace(/[ᴰＤｄ]/g, "D")
+    .replace(/\s+/g, "")
+    .replace(/HD$/i, "")
+    .toLowerCase();
+}
+
+function getPlaySourceOrderMap() {
+  const orderMap = new Map();
+  parsePlaySourceOrderConfig().forEach((name, index) => {
+    const key = normalizePlaySourceKey(name);
+    if (key && !orderMap.has(key)) orderMap.set(key, index);
+  });
+  return orderMap;
+}
+
+function sortPlaySources(playSources) {
+  const orderMap = getPlaySourceOrderMap();
+  if (!orderMap.size) return playSources;
+
+  return playSources
+    .map((source, index) => ({ source, index, order: orderMap.get(normalizePlaySourceKey(source.name)) }))
+    .sort((a, b) => {
+      const aConfigured = Number.isInteger(a.order);
+      const bConfigured = Number.isInteger(b.order);
+      if (aConfigured && bConfigured) return a.order - b.order || a.index - b.index;
+      if (aConfigured) return -1;
+      if (bConfigured) return 1;
+      return a.index - b.index;
+    })
+    .map((item) => item.source);
+}
+
 function normalizeSearchKeyword(value) {
   return convertTraditionalToSimplified(String(value || ""))
     .replace(/[\s\-_—–·•:：,，.。!?！？'"“”‘’()（）\[\]【】{}]/g, "")
@@ -402,7 +452,7 @@ function parsePlaySources($) {
     });
     if (episodes.length) playSources.push({ name: tab.name, episodes });
   }
-  return playSources;
+  return sortPlaySources(playSources);
 }
 
 function pickInfo(html, label) {
