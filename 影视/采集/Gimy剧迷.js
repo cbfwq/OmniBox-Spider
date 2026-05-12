@@ -2,7 +2,7 @@
 // @author 梦
 // @description 影视站：Gimy / gimy.now / gimyai.tw，支持首页、分类、详情、搜索与播放页嗅探
 // @dependencies cheerio,@types/opencc-js
-// @version 1.2.1
+// @version 1.2.2
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/Gimy剧迷.js
 
 const OmniBox = require("omnibox_sdk");
@@ -364,25 +364,41 @@ async function category(params, context) {
   }
 }
 
+function collectPlaylistEpisodes($, scope) {
+  const episodes = [];
+  const seen = new Set();
+  $(scope).find("a[href*='/play/']").each((_, a) => {
+    const $a = $(a);
+    const href = $a.attr("href") || "";
+    const playId = absUrl(href);
+    if (!playId || seen.has(playId)) return;
+    const epName = toDisplayText($a.text()) || "正片";
+    seen.add(playId);
+    episodes.push({ name: epName, playId });
+  });
+  return episodes;
+}
+
 function parsePlaySources($) {
   const tabs = [];
+  const seenTabs = new Set();
   $("#playTab a[href^='#con_playlist_']").each((_, el) => {
     const $el = $(el);
     const href = $el.attr("href") || "";
     const tabId = href.replace(/^#/, "");
     const name = toDisplayText($el.text()) || tabId;
-    if (tabId) tabs.push({ tabId, name });
+    if (tabId && !seenTabs.has(tabId)) {
+      seenTabs.add(tabId);
+      tabs.push({ tabId, name });
+    }
   });
 
   const playSources = [];
   for (const tab of tabs) {
-    const episodes = [];
-    $(`#${tab.tabId} a[href*='/play/']`).each((_, a) => {
-      const $a = $(a);
-      const href = $a.attr("href") || "";
-      const epName = toDisplayText($a.text()) || "正片";
-      if (!href) return;
-      episodes.push({ name: epName, playId: absUrl(href) });
+    let episodes = [];
+    $("[id]").filter((_, el) => String($(el).attr("id") || "") === tab.tabId).each((_, playlist) => {
+      const candidate = collectPlaylistEpisodes($, playlist);
+      if (candidate.length > episodes.length) episodes = candidate;
     });
     if (episodes.length) playSources.push({ name: tab.name, episodes });
   }
