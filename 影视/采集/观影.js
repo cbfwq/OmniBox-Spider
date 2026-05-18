@@ -3,7 +3,7 @@
 // @description https://www.xn--wcv59z.com/
 // @dependencies: axios
 // @version 1.0.0
-// @downloadURL https://你的下载链接/模板.js
+// @downloadURL https://raw.githubusercontent.com/cbfwq/OmniBox-Spider/refs/heads/main/影视/采集/观影.js
 
 const axios = require("axios");
 const https = require("https");
