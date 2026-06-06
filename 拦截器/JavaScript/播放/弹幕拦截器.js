@@ -1,7 +1,7 @@
 // @name 弹幕拦截器
 // @author OpenCode
 // @description 在 afterPlay 阶段根据 TMDB 刮削结果或标题关键词自动匹配弹幕数据（参考木偶.js / 嗷呜动漫.js 弹幕匹配流程）
-// @version 1.1.0
+// @version 1.2.0
 // @filter-stages play_after
 // @filter-config-schema {"description":"在播放阶段读取已有刮削元数据或根据标题/集名匹配弹幕","fields":[{"key":"danmakuEnabled","label":"启用弹幕","type":"boolean","required":false}]}
 
@@ -43,6 +43,20 @@ function parsePlayId(playId = "") {
       return { playURL: mainPlayId || "" };
     }
   }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+    if (decoded && typeof decoded === "object" && (decoded.id || decoded.sid)) {
+      return {
+        playURL: String(decoded.id || ""),
+        shareURL: "",
+        fileId: String(decoded.fid || ""),
+        videoId: String(decoded.sid || decoded.videoId || ""),
+        vodName: String(decoded.v || decoded.vodName || ""),
+        episodeName: String(decoded.e || decoded.episodeName || ""),
+      };
+    }
+  } catch (_) { /* 非纯base64 JSON格式 */ }
 
   const parts = raw.split("|");
   if (parts.length < 2) return {};

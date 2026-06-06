@@ -1,7 +1,7 @@
 // @name 播放记录拦截器
 // @author OpenCode
 // @description 在 afterPlay 阶段自动记录观看历史（参考木偶.js / 嗷呜动漫.js play() 中的 addPlayHistory 调用）
-// @version 1.1.0
+// @version 1.2.0
 // @filter-stages play_after
 // @filter-config-schema {"description":"在播放阶段为当前播放条目添加观看历史记录","fields":[{"key":"recordEnabled","label":"启用播放记录","type":"boolean","required":false},{"key":"updateFavoriteEpisode","label":"更新收藏集数","type":"boolean","required":false,"placeholder":"播放后更新追剧进度"}]}
 
@@ -43,6 +43,20 @@ function parsePlayId(playId = "") {
       return { playURL: mainPlayId || "" };
     }
   }
+
+  try {
+    const decoded = JSON.parse(Buffer.from(raw, "base64").toString("utf8"));
+    if (decoded && typeof decoded === "object" && (decoded.id || decoded.sid)) {
+      return {
+        playURL: String(decoded.id || ""),
+        shareURL: "",
+        fileId: String(decoded.fid || ""),
+        videoId: String(decoded.sid || decoded.videoId || ""),
+        vodName: String(decoded.v || decoded.vodName || ""),
+        episodeName: String(decoded.e || decoded.episodeName || ""),
+      };
+    }
+  } catch (_) { /* 非纯base64 JSON格式 */ }
 
   const parts = raw.split("|");
   if (parts.length < 2) return {};

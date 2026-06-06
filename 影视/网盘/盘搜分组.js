@@ -2,7 +2,7 @@
 // @author 
 // @description 刮削：支持，弹幕：支持，嗅探：支持，只支持tvbox接口
 // @dependencies: crypto, axios
-// @version 1.4
+// @version 1.5.0
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/盘搜分组.js
 
 /**
@@ -40,6 +40,8 @@ const PANCHECK_PLATFORMS = process.env.PANCHECK_PLATFORMS || "quark,baidu,uc,pan
 const GLOBAL_115_COOKIE = process.env.PAN_115_COOKIE || process.env.GLOBAL_115_COOKIE || process.env.QIWEI_115_COOKIE || process.env.WOOG_115_COOKIE || process.env['115_COOKIE'] || "";
 const GLOBAL_115_MAGNET_CACHE_EX_SECONDS = Number(process.env.GLOBAL_115_MAGNET_CACHE_EX_SECONDS || process.env.QIWEI_115_MAGNET_CACHE_EX_SECONDS || 2592000);
 
+const RAPID_TRANSFER_ENABLED = String(process.env.RAPID_TRANSFER_ENABLED || "true").toLowerCase() !== "false";
+
 function sleep(ms) {
     return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms) || 0)));
 }
@@ -52,7 +54,7 @@ function splitConfigList(value) {
 }
 
 // 网盘类型匹配配置: 支持逗号/分号分隔，例如 quark;uc 或 quark,uc
-const DRIVE_TYPE_CONFIG = splitConfigList(process.env.DRIVE_TYPE_CONFIG || "quark;uc");
+const DRIVE_TYPE_CONFIG = splitConfigList(process.env.DRIVE_TYPE_CONFIG || "quark;uc;aliyun");
 // 线路名称配置: 支持逗号/分号分隔，例如 本地代理;服务端代理;直连
 const SOURCE_NAMES_CONFIG = splitConfigList(process.env.SOURCE_NAMES_CONFIG || "本地代理;服务端代理;直连");
 // 是否开启外网服务器代理（默认关闭）
@@ -657,6 +659,34 @@ function build115Headers() {
 function same115FileName(a = "", b = "") {
     const basename = (value) => String(value || "").split(/[\\/]/).pop().trim();
     return basename(a) && basename(a) === basename(b);
+}
+
+async function checkRapidTransferAvailable(shareURL) {
+    if (!RAPID_TRANSFER_ENABLED) return { available: false, targets: [] };
+    try {
+        const result = await OmniBox.checkRapidTransfer(shareURL);
+        if (result && result.available) {
+            return { available: true, targets: Array.isArray(result.targetDrives) ? result.targetDrives : [], sourceDrive: result.sourceDrive || "" };
+        }
+    } catch (error) {
+        logWarn("秒传可用性检查失败", { error: error.message || String(error) });
+    }
+    return { available: false, targets: [] };
+}
+
+async function rapidTransferPlay(shareURL, fileId, targetDrive, flag, context) {
+    const result = await OmniBox.rapidTransferPlay(shareURL, fileId, targetDrive, flag || "直连");
+    if (!result || !result.success) {
+        throw new Error("秒传未命中: " + ((result && result.error) || "未知错误"));
+    }
+    const urls = Array.isArray(result.url) ? result.url : (result.url ? [{ name: "播放", url: result.url }] : []);
+    return {
+        urls: urls.map((item) => ({ name: item.name || "播放", url: item.url })),
+        flag: flag || ("秒传" + targetDrive),
+        header: result.header || {},
+        parse: 0,
+        danmaku: result.danmaku || [],
+    };
 }
 
 async function find115FileByName(fileName = "") {
@@ -1500,28 +1530,38 @@ async function searchSpecificPan(keyword, page, panType) {
 
         OmniBox.log("info", `搜索特定网盘: panType=${panType}, keyword=${keyword}`);
 
+        const pancheckCacheKey = buildCacheKey("pansou-group:pancheck", keyword);
+        const cachedValidLinks = await getCachedJSON(pancheckCacheKey);
+        let validLinksSet = null;
+
+        if (cachedValidLinks && Array.isArray(cachedValidLinks.validLinks) && PANCHECK_ENABLED && PANCHECK_API) {
+            validLinksSet = new Set(cachedValidLinks.validLinks);
+            OmniBox.log("info", `PanCheck 缓存命中, 有效链接数: ${validLinksSet.size}, 跳过重复检测`);
+        }
+
         // 调用盘搜API，指定网盘类型
         const response = await requestPansouAPI({
             keyword: keyword,
             cloud_types: [panType]
         });
 
-        // 提取链接并进行检测
-        const links = extractLinksFromSearchData(response);
-        OmniBox.log("info", `提取到链接数量: ${links.length}`);
+        if (!validLinksSet) {
+            const links = extractLinksFromSearchData(response);
+            OmniBox.log("info", `PanCheck 缓存未命中, 提取到链接数量: ${links.length}`);
 
-        let validLinksSet = new Set(links);
-        if (PANCHECK_ENABLED && PANCHECK_API && links.length > 0) {
-            try {
-                const { invalidLinksSet, stats } = await checkLinksWithPanCheck(links);
-                validLinksSet = new Set(links.filter(link => !invalidLinksSet.has(link)));
-                if (stats) {
-                    OmniBox.log("info", `PanCheck 分平台统计(${panType}): 输入=${JSON.stringify(stats.inputPlatformStats)}, 校验=${JSON.stringify(stats.checkedPlatformStats)}, 过滤=${JSON.stringify(stats.invalidPlatformStats)}, 剩余=${JSON.stringify(stats.validPlatformStats)}, 跳过=${JSON.stringify(stats.bypassPlatformStats)}`);
-                    OmniBox.log("info", `PanCheck 总统计(${panType}): 总输入=${stats.totalInput}, 总校验=${stats.totalChecked}, 总过滤=${stats.totalInvalid}, 总剩余=${stats.totalOutput}, 其中直出=${stats.totalBypass}`);
+            validLinksSet = new Set(links);
+            if (PANCHECK_ENABLED && PANCHECK_API && links.length > 0) {
+                try {
+                    const { invalidLinksSet, stats } = await checkLinksWithPanCheck(links);
+                    validLinksSet = new Set(links.filter(link => !invalidLinksSet.has(link)));
+                    if (stats) {
+                        OmniBox.log("info", `PanCheck 分平台统计(${panType}): 输入=${JSON.stringify(stats.inputPlatformStats)}, 校验=${JSON.stringify(stats.checkedPlatformStats)}, 过滤=${JSON.stringify(stats.invalidPlatformStats)}, 剩余=${JSON.stringify(stats.validPlatformStats)}, 跳过=${JSON.stringify(stats.bypassPlatformStats)}`);
+                        OmniBox.log("info", `PanCheck 总统计(${panType}): 总输入=${stats.totalInput}, 总校验=${stats.totalChecked}, 总过滤=${stats.totalInvalid}, 总剩余=${stats.totalOutput}, 其中直出=${stats.totalBypass}`);
+                    }
+                    OmniBox.log("info", `链接检测完成,有效链接: ${validLinksSet.size}, 无效链接: ${invalidLinksSet.size}`);
+                } catch (error) {
+                    OmniBox.log("warn", `PanCheck 处理失败: ${error.message}`);
                 }
-                OmniBox.log("info", `链接检测完成,有效链接: ${validLinksSet.size}, 无效链接: ${invalidLinksSet.size}`);
-            } catch (error) {
-                OmniBox.log("warn", `PanCheck 处理失败: ${error.message}`);
             }
         }
 
@@ -1595,6 +1635,10 @@ async function search(params) {
                     OmniBox.log("info", `PanCheck 总统计(分组搜索): 总输入=${stats.totalInput}, 总校验=${stats.totalChecked}, 总过滤=${stats.totalInvalid}, 总剩余=${stats.totalOutput}, 其中直出=${stats.totalBypass}`);
                 }
                 OmniBox.log("info", `链接检测完成,有效链接: ${validLinksSet.size}, 无效链接: ${invalidLinksSet.size}`);
+
+                const pancheckCacheKey = buildCacheKey("pansou-group:pancheck", keyword);
+                await setCachedJSON(pancheckCacheKey, { validLinks: [...validLinksSet] }, PANSOU_GROUP_CACHE_EX_SECONDS);
+                OmniBox.log("info", `PanCheck 结果已缓存, key=${pancheckCacheKey}, 有效链接数: ${validLinksSet.size}`);
             } catch (error) {
                 OmniBox.log("warn", `PanCheck 处理失败: ${error.message}`);
             }
@@ -1959,6 +2003,60 @@ async function detail(params, context) {
             OmniBox.log("info", `按 DRIVE_ORDER 排序后线路顺序: ${playSources.map((item) => item.name).join(" | ")}`);
         }
 
+        if (RAPID_TRANSFER_ENABLED) {
+            try {
+                const rapidInfo = await checkRapidTransferAvailable(shareURL);
+                if (rapidInfo.available && Array.isArray(rapidInfo.targets) && rapidInfo.targets.length > 0) {
+                    OmniBox.log("info", `秒传可用, 目标网盘: ${rapidInfo.targets.map((t) => t.routeName || t.name).join(", ")}`);
+                    for (const target of rapidInfo.targets) {
+                        const sourceName = target.routeName || ("秒传" + (target.name || target.driveType));
+                        const episodes = [];
+                        for (const file of allVideoFiles) {
+                            let fileName = file.file_name || "";
+                            const fileId = file.fid || "";
+                            const fileSize = file.size || file.file_size || 0;
+                            const formattedFileId = fileId ? `${encodeURIComponent(shareURL)}|${fileId}` : "";
+                            let matchedMapping = null;
+                            if (scrapeData && videoMappings && Array.isArray(videoMappings) && videoMappings.length > 0) {
+                                for (const mapping of videoMappings) {
+                                    if (mapping && mapping.fileId === formattedFileId) {
+                                        matchedMapping = mapping;
+                                        const newFileName = buildScrapedFileName(scrapeData, mapping, fileName);
+                                        if (newFileName && newFileName !== fileName) fileName = newFileName;
+                                        break;
+                                    }
+                                }
+                            }
+                            let displayFileName = fileName;
+                            if (fileSize > 0) {
+                                const fileSizeStr = formatFileSize(fileSize);
+                                if (fileSizeStr) displayFileName = `[${fileSizeStr}] ${fileName}`;
+                            }
+                            const episode = {
+                                name: displayFileName,
+                                playId: formattedFileId,
+                                size: fileSize > 0 ? fileSize : undefined,
+                                _rapidTarget: target.driveType,
+                            };
+                            if (matchedMapping) {
+                                if (matchedMapping.episodeNumber !== undefined && matchedMapping.episodeNumber !== null) {
+                                    episode._episodeNumber = matchedMapping.episodeNumber;
+                                }
+                                if (matchedMapping.episodeName) episode.episodeName = matchedMapping.episodeName;
+                            }
+                            if (episode.name && episode.playId) episodes.push(episode);
+                        }
+                        if (episodes.length > 0) {
+                            playSources.push({ name: sourceName, episodes, rapidTransfer: true });
+                            OmniBox.log("info", `已添加秒传线路: ${sourceName}, 剧集数: ${episodes.length}`);
+                        }
+                    }
+                }
+            } catch (error) {
+                logWarn("秒传线路检测/添加失败", { error: error.message || String(error) });
+            }
+        }
+
         const displayNameFromFileList = fileList.displayName || fileList.display_name || "";
         let vodName = displayNameFromFileList || note || keyword || shareURL;
         let vodPic = "";
@@ -2047,6 +2145,23 @@ async function play(params, context) {
                     playId = magnetMeta.magnet;
                 } else {
                     throw error;
+                }
+            }
+        }
+
+        if (flag && String(flag).startsWith("秒传")) {
+            const targetDrive = String(flag).replace(/^秒传/, "").trim();
+            const driveMap = { "阿里": "aliyun", "115": "115", "aliyun": "aliyun" };
+            const resolvedDrive = driveMap[targetDrive] || targetDrive;
+            const parts = playId.split("|");
+            if (parts.length >= 2) {
+                const shareURL = decodeURIComponent(parts[0]);
+                const fileId = parts[1];
+                OmniBox.log("info", `秒传播放: targetDrive=${resolvedDrive}, shareURL=${shareURL.substring(0, 80)}, fileId=${fileId}`);
+                try {
+                    return await rapidTransferPlay(shareURL, fileId, resolvedDrive, flag, context);
+                } catch (error) {
+                    OmniBox.log("warn", `秒传播放失败，回退原始线路: ${error.message}`);
                 }
             }
         }
