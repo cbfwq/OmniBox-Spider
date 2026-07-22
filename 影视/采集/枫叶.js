@@ -2,7 +2,7 @@
 // @author 梦
 // @description 影视站：支持首页、分类、详情、搜索与播放，补齐刮削、弹幕与播放记录，基于 https://www.budaichuchen.net
 // @dependencies cheerio
-// @version 1.1.0
+// @version 1.1.1
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/采集/枫叶.js
 
 const OmniBox = require("omnibox_sdk");
@@ -618,7 +618,7 @@ async function play(params = {}, context = {}) {
     }
 
     const playId = String(rawPlayId || "");
-    if (!playId) return { parse: 1, url: "", urls: [], header: {}, flag: "fengye" };
+    if (!playId) return { parse: 1, url: "", urls: [], header: {} };
     const playUrl = `${BASE_URL}/play/${playId}.html`;
 
     const playInfoPromise = (async () => {
@@ -638,9 +638,7 @@ async function play(params = {}, context = {}) {
           urls: [{ name: "播放", url: realVideoUrl }],
           header: finalHeaders,
           headers: finalHeaders,
-          flag: "fengye",
-          danmaku: [],
-        };
+          danmaku: []};
       }
 
       await OmniBox.log("warn", `[枫叶][play] fallback parse=1 playId=${playId}`);
@@ -650,9 +648,7 @@ async function play(params = {}, context = {}) {
         urls: [{ name: "播放页", url: playUrl }],
         header: finalHeaders,
         headers: finalHeaders,
-        flag: "fengye",
-        danmaku: [],
-      };
+        danmaku: []};
     })();
 
     const metadataPromise = (async () => {
@@ -770,6 +766,6 @@ async function play(params = {}, context = {}) {
     return playResult;
   } catch (e) {
     await OmniBox.log("error", `[枫叶][play] ${e.message}`);
-    return { parse: 1, url: "", urls: [], header: {}, flag: "fengye", danmaku: [] };
+    return { parse: 1, url: "", urls: [], header: {}, danmaku: [] };
   }
 }

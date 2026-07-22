@@ -1,9 +1,9 @@
-// @name 闪电
+// @name 蜗牛4K
 // @author
-// @description 刮削：支持，弹幕：支持，播放记录：支持
+// @description 刮削：支持，弹幕：支持，嗅探：支持。站点：zmi.kdns.fr（MacCMS mxone 模板，主推 115 分享）
 // @dependencies: axios, cheerio
-// @version 1.0.7
-// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/闪电.js
+// @version 1.0.1
+// @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/蜗牛4K.js
 
 // 引入 OmniBox SDK
 const OmniBox = require("omnibox_sdk");
@@ -20,6 +20,7 @@ try {
 } catch (error) {
   throw new Error("axios 模块未找到,请先安装:npm install axios");
 }
+const http = require("http");
 const https = require("https");
 const fs = require("fs");
 
@@ -32,19 +33,31 @@ function splitConfigList(value) {
 }
 
 // 网站地址(可以通过环境变量配置,支持多个域名用逗号/分号分割)
-const WEB_SITE_CONFIG = process.env.WEB_SITE_SHANDIAN || "https://sd.sduc.site;";
+const WEB_SITE_CONFIG = process.env.WEB_SITE_WONIU4K || "https://zmi.kdns.fr";
 const WEB_SITES = splitConfigList(WEB_SITE_CONFIG);
-// 读取环境变量:支持多个网盘类型,用逗号/分号分割
-const DRIVE_TYPE_CONFIG = splitConfigList(process.env.DRIVE_TYPE_CONFIG || "quark;uc");
+// 读取环境变量:支持多个网盘类型,用逗号/分号分割（蜗牛主推 115）
+const DRIVE_TYPE_CONFIG = splitConfigList(process.env.DRIVE_TYPE_CONFIG || "115;quark;uc");
 // 读取环境变量:线路名称和顺序,用逗号/分号分割
 const SOURCE_NAMES_CONFIG = splitConfigList(process.env.SOURCE_NAMES_CONFIG || "本地代理;服务端代理;直连");
 // 是否开启外网服务器代理（默认关闭）
 const EXTERNAL_SERVER_PROXY_ENABLED = String(process.env.EXTERNAL_SERVER_PROXY_ENABLED || "false").toLowerCase() === "true";
 // 读取环境变量:详情页播放线路的网盘排序顺序。仅作用于 detail() 里的播放线路，不作用于搜索结果。
-const DRIVE_ORDER = splitConfigList(process.env.DRIVE_ORDER || "baidu;tianyi;quark;uc;115;xunlei;ali;123pan").map(s => s.toLowerCase());
+const DRIVE_ORDER = splitConfigList(process.env.DRIVE_ORDER || "115;quark;uc;baidu;tianyi;xunlei;ali;123pan").map(s => s.toLowerCase());
 // 详情链路缓存时间（秒），默认 12 小时
-const MUOU_CACHE_EX_SECONDS = Number(process.env.MUOU_CACHE_EX_SECONDS || 43200);
-const MUOU_VERBOSE_DETAIL = String(process.env.MUOU_VERBOSE_DETAIL || "0") === "1";
+const WONIU_CACHE_EX_SECONDS = Number(process.env.WONIU4K_CACHE_EX_SECONDS || process.env.WONIU_CACHE_EX_SECONDS || 43200);
+const WONIU_VERBOSE_DETAIL = String(process.env.WONIU4K_VERBOSE_DETAIL || process.env.MUOU_VERBOSE_DETAIL || "0") === "1";
+// 站点上游代理（部分出口直连 SSL 失败时可配置）
+const UPSTREAM_PROXY_URL = String(
+  process.env.WONIU4K_PROXY || process.env.PROXY_HTTP || process.env.HTTP_PROXY || process.env.http_proxy || ""
+).trim();
+const SITE_UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+// 静态分类（mxone 模板）
+const STATIC_CLASSES = [
+  { type_id: "1", type_name: "电影" },
+  { type_id: "2", type_name: "连续剧" },
+  { type_id: "3", type_name: "综艺" },
+  { type_id: "4", type_name: "动漫" },
+];
 // ==================== 配置区域结束 ====================
 
 /**
@@ -142,6 +155,7 @@ function filterSourceNamesForCaller(sourceNames = [], callerSource = "", context
 
 function resolveRouteType(flag = "", callerSource = "", context = {}) {
   const allowServerProxy = canUseServerProxy(context);
+  const validRouteTypes = new Set(["本地代理", "服务端代理", "直连"]);
   let routeType = "直连";
 
   if (callerSource === "web" || callerSource === "emby") {
@@ -155,6 +169,10 @@ function resolveRouteType(flag = "", callerSource = "", context = {}) {
     } else {
       routeType = flag;
     }
+  }
+
+  if (!validRouteTypes.has(routeType)) {
+    routeType = "直连";
   }
 
   if (!allowServerProxy && routeType === "服务端代理") {
@@ -176,19 +194,39 @@ OmniBox.log("info", `配置了 ${WEB_SITES.length} 个域名: ${WEB_SITES.join('
 
 const INSECURE_HTTPS_AGENT = new https.Agent({
   rejectUnauthorized: false,
+  keepAlive: true,
 });
+const KEEP_ALIVE_HTTP_AGENT = new http.Agent({ keepAlive: true });
+const AXIOS_PROXY = parseAxiosProxy(UPSTREAM_PROXY_URL);
 
 async function httpRequest(url, options = {}) {
   const method = (options.method || "GET").toUpperCase();
+  const baseHost = (() => {
+    try {
+      return new URL(url).origin + "/";
+    } catch (_) {
+      return getBaseUrl() + "/";
+    }
+  })();
 
   const response = await axios({
     url,
     method,
-    headers: options.headers || {},
+    headers: {
+      "User-Agent": SITE_UA,
+      Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+      "Accept-Language": "zh-CN,zh;q=0.9",
+      Referer: baseHost,
+      ...(options.headers || {}),
+    },
     data: options.body,
-    timeout: options.timeout,
+    timeout: options.timeout || 25000,
+    proxy: AXIOS_PROXY || false,
+    maxRedirects: 5,
+    httpAgent: KEEP_ALIVE_HTTP_AGENT,
     httpsAgent: INSECURE_HTTPS_AGENT,
     validateStatus: () => true,
+    responseType: "text",
   });
 
   let body = response.data;
@@ -221,9 +259,172 @@ function buildCacheKey(prefix, value) {
 }
 
 function logDetailDebug(message) {
-  if (MUOU_VERBOSE_DETAIL) {
+  if (WONIU_VERBOSE_DETAIL) {
     OmniBox.log("info", message);
   }
+}
+
+function parseAxiosProxy(raw) {
+  if (!raw) return false;
+  try {
+    const u = new URL(raw);
+    const out = {
+      protocol: u.protocol.replace(":", ""),
+      host: u.hostname,
+      port: Number(u.port || (u.protocol === "https:" ? 443 : 80)),
+    };
+    if (u.username) {
+      out.auth = {
+        username: decodeURIComponent(u.username),
+        password: decodeURIComponent(u.password || ""),
+      };
+    }
+    return out;
+  } catch (_) {
+    return false;
+  }
+}
+
+function absUrl(url, baseUrl = "") {
+  const base = removeTrailingSlash(baseUrl || getBaseUrl());
+  if (!url) return "";
+  if (/^\/\//.test(url)) return "https:" + url;
+  if (/^https?:\/\//i.test(url)) return url;
+  if (url.startsWith("/")) return base + url;
+  return base + "/" + String(url).replace(/^\/+/, "");
+}
+
+function getIdFromHref(href) {
+  const s = String(href || "");
+  let m = s.match(/\/voddetail\/(\d+)\/?/i);
+  if (m) return m[1];
+  m = s.match(/\/vodplay\/(\d+)-\d+-\d+\/?/i);
+  if (m) return m[1];
+  m = s.match(/\/vod\/detail\/id\/(\d+)\.html/i);
+  if (m) return m[1];
+  m = s.match(/\/index\.php\/vod\/detail\/id\/(\d+)\.html/i);
+  return m ? m[1] : "";
+}
+
+function normalizeVideoId(videoId = "") {
+  const raw = String(videoId || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw) || raw.startsWith("/")) {
+    const id = getIdFromHref(raw);
+    return id || raw;
+  }
+  return raw;
+}
+
+function buildCategoryPath(categoryId, page = 1) {
+  const tid = String(categoryId || "").trim();
+  const pg = Math.max(1, parseInt(page || "1", 10) || 1);
+  if (pg <= 1) return `/vodtype/${tid}/`;
+  return `/vodtype/${tid}-${pg}/`;
+}
+
+function buildSearchPath(keyword, page = 1) {
+  const enc = encodeURIComponent(String(keyword || "").trim());
+  const pg = Math.max(1, parseInt(page || "1", 10) || 1);
+  if (pg <= 1) return `/vodsearch/${enc}-------------/`;
+  return `/vodsearch/${enc}----------${pg}---/`;
+}
+
+function buildDetailPath(videoId) {
+  const id = normalizeVideoId(videoId);
+  if (/^https?:\/\//i.test(id)) return id;
+  if (String(id).startsWith("/")) return id;
+  return `/voddetail/${id}/`;
+}
+
+function normalizeShareUrl(url) {
+  let u = String(url || "").trim().replace(/&amp;/g, "&");
+  if (!u) return "";
+  u = u.replace(/^https?:\/\/(?:www\.)?115cdn\.com\//i, "https://115.com/");
+  u = u.replace(/^https?:\/\/(?:www\.)?anxia\.com\//i, "https://115.com/");
+  return u.replace(/[),.;]+$/, "");
+}
+
+function extractPanUrl(raw) {
+  const s = String(raw || "").replace(/&amp;/g, "&").trim();
+  const m = s.match(/https?:\/\/[^\s"'<>]+/i);
+  return m ? normalizeShareUrl(m[0]) : "";
+}
+
+function isPanShareUrl(url = "") {
+  return /115|quark|aliyun|alipan|baidu|uc\.cn|123pan|189\.cn|xunlei|anxia/i.test(String(url || ""));
+}
+
+function cleanContent(s) {
+  return String(s || "")
+    .replace(/收起|展开全部|内详/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function parsePageCount(html, current = 1) {
+  const $ = cheerio.load(html || "");
+  let max = Math.max(1, parseInt(current || "1", 10) || 1);
+  $("a[href*='/vodtype/'],a[href*='/vodsearch/']").each((_, a) => {
+    const href = $(a).attr("href") || "";
+    let m = href.match(/\/vodtype\/\d+-(\d+)\/?/i);
+    if (m) max = Math.max(max, parseInt(m[1], 10) || 1);
+    m = href.match(/\/vodsearch\/[^/]*?----------+(\d+)---+\/?/i);
+    if (m) max = Math.max(max, parseInt(m[1], 10) || 1);
+  });
+  return max || 1;
+}
+
+function parseListFromHtml(html, baseUrl = "") {
+  const $ = cheerio.load(html || "");
+  const seen = new Set();
+  const list = [];
+
+  $(".module-item,.module-search-item").each((_, el) => {
+    let a = $(el).find('a[href*="/voddetail/"]').first();
+    if (!a.length) a = $(el).find('a[href*="/vodplay/"]').first();
+    const href = a.attr("href") || "";
+    const id = getIdFromHref(href);
+    if (!id || seen.has(id)) return;
+    seen.add(id);
+
+    const img = $(el).find("img").first();
+    let title = (
+      a.attr("title") ||
+      $(el).find(".module-poster-item-title").text() ||
+      $(el).find(".module-item-title").text() ||
+      $(el).find(".video-name").text() ||
+      $(el).find("h3,h4").first().text() ||
+      ""
+    )
+      .replace(/\s+/g, " ")
+      .replace(/^立刻播放|^下载/g, "")
+      .trim();
+    if (!title) return;
+
+    let pic = img.attr("data-src") || img.attr("data-original") || img.attr("src") || "";
+    if (pic.includes("loading.gif")) {
+      pic = img.attr("data-src") || img.attr("data-original") || "";
+    }
+    const note =
+      $(el).find(".module-item-note").text().trim() ||
+      $(el).find(".module-poster-item-note").text().trim() ||
+      $(el).find(".video-serial").text().trim() ||
+      $(el).find(".module-item-caption").text().trim() ||
+      $(el).find(".module-item-text").text().trim() ||
+      "";
+
+    list.push({
+      vod_id: id,
+      vod_name: title,
+      vod_pic: absUrl(pic, baseUrl),
+      type_id: "",
+      type_name: "",
+      vod_remarks: note.replace(/\s+/g, " ").trim(),
+    });
+  });
+
+  return list;
 }
 
 async function getCachedJSON(key) {
@@ -261,10 +462,10 @@ async function requestWithFailover(path, options = {}) {
         ...options,
         method: options.method || "GET",
         headers: {
-          "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+          "User-Agent": SITE_UA,
           ...(options.headers || {}),
         },
-        timeout: options.timeout ?? perDomainTimeout,
+        timeout: options.timeout ?? Math.max(perDomainTimeout, 15000),
       });
 
       if (response.statusCode === 200 && response.body) {
@@ -344,12 +545,14 @@ function normalizeFilterGroup(group) {
 
 function extractFilterKeyFromHref(href = "") {
   if (!href) return null;
+  const raw = String(href);
   for (const key of Object.keys(FILTER_KEY_NAME_MAP)) {
-    if (href.includes(`${key}/`)) {
+    if (raw.includes(`${key}/`) || raw.includes(`/${key}/`)) {
       return key;
     }
   }
-  if (href.includes("id/")) {
+  // mxone 伪静态：/vodshow/1-----------/ 或 show 路径
+  if (raw.includes("id/") || /\/vodtype\/\d+/i.test(raw) || /\/vodshow\//i.test(raw)) {
     return "id";
   }
   return null;
@@ -357,11 +560,19 @@ function extractFilterKeyFromHref(href = "") {
 
 function extractFilterValueFromHref(href = "", key = "") {
   if (!href || !key) return "";
+  const raw = String(href);
   const marker = `${key}/`;
-  const idx = href.indexOf(marker);
-  if (idx < 0) return "";
-  const rest = href.substring(idx + marker.length);
-  return decodeURIComponent((rest.split('/')[0] || "").split('.')[0] || "");
+  const idx = raw.indexOf(marker);
+  if (idx >= 0) {
+    const rest = raw.substring(idx + marker.length);
+    return decodeURIComponent((rest.split('/')[0] || "").split('.')[0] || "");
+  }
+  // mxone: /vodtype/1/ 取分类 id
+  if (key === "id") {
+    const m = raw.match(/\/vodtype\/(\d+)/i) || raw.match(/\/id\/(\d+)/i);
+    if (m) return m[1];
+  }
+  return "";
 }
 
 function parseFiltersFromHtml(html = "") {
@@ -409,12 +620,24 @@ function parseFiltersFromHtml(html = "") {
 async function getAutoFiltersByCategory(categoryId) {
   if (!categoryId) return [];
   try {
-    const path = `/index.php/vod/show/id/${categoryId}.html`;
-    const { response } = await requestWithFailover(path);
-    if (response.statusCode !== 200 || !response.body) {
-      return [];
+    // mxone 优先伪静态分类页，失败再回退 show
+    const paths = [
+      `/vodtype/${categoryId}/`,
+      `/index.php/vod/show/id/${categoryId}.html`,
+      `/index.php/vod/type/id/${categoryId}.html`,
+    ];
+    for (const path of paths) {
+      try {
+        const { response } = await requestWithFailover(path);
+        if (response.statusCode === 200 && response.body) {
+          const groups = parseFiltersFromHtml(response.body);
+          if (groups.length > 0) return groups;
+        }
+      } catch (_) {
+        // try next
+      }
     }
-    return parseFiltersFromHtml(response.body);
+    return [];
   } catch (error) {
     OmniBox.log("warn", `自动提取分类筛选失败: categoryId=${categoryId}, err=${error.message}`);
     return [];
@@ -571,69 +794,45 @@ function formatFileSize(size) {
 
 async function home(params) {
   try {
-    OmniBox.log("info", "获取首页数据");
+    OmniBox.log("info", "蜗牛4K 获取首页数据");
 
-    let classes = [];
+    let classes = [...STATIC_CLASSES];
     let list = [];
 
     try {
-      const { response, baseUrl } = await requestWithFailover('/');
+      const { response, baseUrl } = await requestWithFailover("/");
 
       if (response.statusCode === 200 && response.body) {
         const $ = cheerio.load(response.body);
 
-        const tabItems = $(".module-tab-items .module-tab-item");
-        tabItems.each((_, element) => {
+        const navClasses = [];
+        $(".module-tab-items .module-tab-item, .nav-menu-item a, .nav-menu a").each((_, element) => {
           const $item = $(element);
-          const typeId = $item.attr("data-id");
-          const typeName = $item.attr("data-name");
-
-          if (typeId && typeId !== "0" && typeName) {
-            classes.push({
-              type_id: typeId,
-              type_name: typeName.trim(),
-            });
+          const href = $item.attr("href") || "";
+          const typeId = $item.attr("data-id") || (href.match(/\/vodtype\/(\d+)/i) || [])[1];
+          const typeName = ($item.attr("data-name") || $item.text() || "").replace(/\s+/g, " ").trim();
+          if (typeId && typeId !== "0" && typeName && !/首页|最近|排行|专题|求片|留言/.test(typeName)) {
+            navClasses.push({ type_id: String(typeId), type_name: typeName });
           }
         });
-
-        OmniBox.log("info", `从首页导航提取到 ${classes.length} 个分类`);
-
-        const firstModule = $(".module");
-
-        if (firstModule.length > 0) {
-          const moduleItems = firstModule.find(".module-item");
-
-          moduleItems.each((_, element) => {
-            const $item = $(element);
-            const href = $item.find(".module-item-pic a").attr("href") || $item.find(".module-item-title").attr("href");
-            const vodName = $item.find(".module-item-pic img").attr("alt") || $item.find(".module-item-title").attr("title") || $item.find(".module-item-title").text().trim();
-
-            let vodPic = $item.find(".module-item-pic img").attr("data-src") || $item.find(".module-item-pic img").attr("src");
-            if (vodPic && !vodPic.startsWith("http://") && !vodPic.startsWith("https://")) {
-              vodPic = baseUrl + vodPic;
-            }
-
-            const vodRemarks = $item.find(".module-item-text").text().trim();
-            const vodYear = $item.find(".module-item-caption span").first().text().trim();
-
-            if (href && vodName) {
-              list.push({
-                vod_id: href,
-                vod_name: vodName,
-                vod_pic: vodPic || "",
-                type_id: "",
-                type_name: "",
-                vod_remarks: vodRemarks || "",
-                vod_year: vodYear || "",
-              });
-            }
+        if (navClasses.length > 0) {
+          const seen = new Set();
+          classes = navClasses.filter((c) => {
+            if (seen.has(c.type_id)) return false;
+            seen.add(c.type_id);
+            return true;
           });
-
-          OmniBox.log("info", `从首页提取到 ${list.length} 个影片`);
         }
+
+        list = parseListFromHtml(response.body, baseUrl);
+        OmniBox.log("info", `蜗牛4K 首页分类=${classes.length}, 影片=${list.length}`);
       }
     } catch (error) {
-      OmniBox.log("warn", `从首页提取数据失败: ${error.message}`);
+      OmniBox.log("warn", `蜗牛4K 从首页提取数据失败: ${error.message}`);
+    }
+
+    if (classes.length === 0) {
+      classes = [...STATIC_CLASSES];
     }
 
     const currentFilters = await getPreferredFilters(classes);
@@ -643,7 +842,12 @@ async function home(params) {
       filters: currentFilters,
     };
   } catch (error) {
-    OmniBox.log("error", `获取首页数据失败: ${error.message}`);
+    OmniBox.log("error", `蜗牛4K 获取首页数据失败: ${error.message}`);
+    return {
+      class: STATIC_CLASSES,
+      list: [],
+      filters: {},
+    };
   }
 }
 
@@ -653,7 +857,7 @@ async function category(params) {
     const page = parseInt(params.page || "1", 10);
     const filters = params.filters || {};
 
-    OmniBox.log("info", `获取分类数据: categoryId=${categoryId}, page=${page}`);
+    OmniBox.log("info", `蜗牛4K 获取分类数据: categoryId=${categoryId}, page=${page}`);
 
     if (!categoryId) {
       OmniBox.log("warn", "分类ID为空");
@@ -665,31 +869,22 @@ async function category(params) {
       };
     }
 
-    let url = '/index.php/vod/show';
-    if (filters.area) {
-      url += `/area/${filters.area}`;
-    }
-    const sortValue = filters.sort || filters.by;
-    if (sortValue) {
-      url += `/by/${sortValue}`;
-    }
-    if (filters.class) {
-      url += `/class/${filters.class}`;
-    }
-    if (filters.lang) {
-      url += `/lang/${filters.lang}`;
-    }
-    if (filters.letter) {
-      url += `/letter/${filters.letter}`;
-    }
-    if (filters.year) {
-      url += `/year/${filters.year}`;
-    }
-    const tidValue = filters.tid || filters.id;
-    if (tidValue) {
-      url += `/id/${tidValue}.html`;
-    } else {
-      url += `/id/${categoryId}/page/${page}.html`;
+    // mxone 伪静态优先；有筛选时回退 show 路径
+    let url = buildCategoryPath(categoryId, page);
+    const hasFilter = filters.area || filters.class || filters.lang || filters.letter || filters.year || filters.sort || filters.by || filters.tid || filters.id;
+    if (hasFilter) {
+      url = "/index.php/vod/show";
+      if (filters.area) url += `/area/${encodeURIComponent(filters.area)}`;
+      const sortValue = filters.sort || filters.by;
+      if (sortValue) url += `/by/${encodeURIComponent(sortValue)}`;
+      if (filters.class) url += `/class/${encodeURIComponent(filters.class)}`;
+      if (filters.lang) url += `/lang/${encodeURIComponent(filters.lang)}`;
+      if (filters.letter) url += `/letter/${encodeURIComponent(filters.letter)}`;
+      if (filters.year) url += `/year/${encodeURIComponent(filters.year)}`;
+      const tidValue = filters.tid || filters.id || categoryId;
+      url += `/id/${tidValue}`;
+      if (page > 1) url += `/page/${page}`;
+      url += ".html";
     }
 
     const { response, baseUrl } = await requestWithFailover(url);
@@ -704,35 +899,12 @@ async function category(params) {
       };
     }
 
-    const $ = cheerio.load(response.body);
-    const videos = [];
+    const videos = parseListFromHtml(response.body, baseUrl).map((item) => ({
+      ...item,
+      type_id: categoryId,
+    }));
 
-    const vodItems = $("#main .module-item");
-    vodItems.each((_, e) => {
-      const $item = $(e);
-      const href = $item.find(".module-item-pic a").attr("href");
-      const vodName = $item.find(".module-item-pic img").attr("alt");
-      let vodPic = $item.find(".module-item-pic img").attr("data-src");
-      if (vodPic && !vodPic.startsWith("http://") && !vodPic.startsWith("https://")) {
-        vodPic = baseUrl + vodPic;
-      }
-      const vodRemarks = $item.find(".module-item-text").text();
-      const vodYear = $item.find(".module-item-caption span").first().text();
-
-      if (href && vodName) {
-        videos.push({
-          vod_id: href,
-          vod_name: vodName,
-          vod_pic: vodPic || "",
-          type_id: categoryId,
-          type_name: "",
-          vod_remarks: vodRemarks || "",
-          vod_year: vodYear || "",
-        });
-      }
-    });
-
-    OmniBox.log("info", `解析完成,找到 ${videos.length} 个视频`);
+    OmniBox.log("info", `蜗牛4K 分类解析完成,找到 ${videos.length} 个视频`);
 
     const autoFilters = parseFiltersFromHtml(response.body);
     let categoryFilters = autoFilters;
@@ -742,10 +914,11 @@ async function category(params) {
       categoryFilters = preferredFilters[categoryId] || [];
     }
 
+    const pagecount = parsePageCount(response.body, page);
     const result = {
       list: videos,
       page: page,
-      pagecount: 0,
+      pagecount: pagecount,
       total: videos.length,
     };
 
@@ -755,7 +928,7 @@ async function category(params) {
 
     return result;
   } catch (error) {
-    OmniBox.log("error", `获取分类数据失败: ${error.message}`);
+    OmniBox.log("error", `蜗牛4K 获取分类数据失败: ${error.message}`);
     return {
       list: [],
       page: params.page || 1,
@@ -812,12 +985,12 @@ function decodePlayMeta(str = "") {
 }
 
 async function getDetailPageCached(videoId) {
-  const detailCacheKey = buildCacheKey("muou:detailHtml", videoId);
+  const detailCacheKey = buildCacheKey("woniu4k:detailHtml", videoId);
   let detailPage = await getCachedJSON(detailCacheKey);
   if (!detailPage) {
     detailPage = await requestWithFailover(videoId);
     if (detailPage && detailPage.response && detailPage.response.statusCode === 200 && detailPage.response.body) {
-      await setCachedJSON(detailCacheKey, detailPage, MUOU_CACHE_EX_SECONDS);
+      await setCachedJSON(detailCacheKey, detailPage, WONIU_CACHE_EX_SECONDS);
     }
   } else {
     logDetailDebug(`命中详情页缓存: ${videoId}`);
@@ -826,22 +999,22 @@ async function getDetailPageCached(videoId) {
 }
 
 async function getDriveInfoCached(shareURL) {
-  const cacheKey = buildCacheKey("muou:driveInfo", shareURL);
+  const cacheKey = buildCacheKey("woniu4k:driveInfo", shareURL);
   let driveInfo = await getCachedJSON(cacheKey);
   if (!driveInfo) {
     driveInfo = await OmniBox.getDriveInfoByShareURL(shareURL);
-    await setCachedJSON(cacheKey, driveInfo, MUOU_CACHE_EX_SECONDS);
+    await setCachedJSON(cacheKey, driveInfo, WONIU_CACHE_EX_SECONDS);
   }
   return driveInfo;
 }
 
 async function getRootFileListCached(shareURL) {
-  const cacheKey = buildCacheKey("muou:rootFiles", shareURL);
+  const cacheKey = buildCacheKey("woniu4k:rootFiles", shareURL);
   let fileList = await getCachedJSON(cacheKey);
   if (!fileList) {
     fileList = await OmniBox.getDriveFileList(shareURL, "0");
     if (fileList && fileList.files && Array.isArray(fileList.files)) {
-      await setCachedJSON(cacheKey, fileList, MUOU_CACHE_EX_SECONDS);
+      await setCachedJSON(cacheKey, fileList, WONIU_CACHE_EX_SECONDS);
     }
   } else {
     logDetailDebug(`命中根目录文件列表缓存: ${shareURL}`);
@@ -850,12 +1023,12 @@ async function getRootFileListCached(shareURL) {
 }
 
 async function getAllVideoFilesCached(shareURL, rootFiles) {
-  const cacheKey = buildCacheKey("muou:videoFiles", shareURL);
+  const cacheKey = buildCacheKey("woniu4k:videoFiles", shareURL);
   let allVideoFiles = await getCachedJSON(cacheKey);
   if (!Array.isArray(allVideoFiles) || allVideoFiles.length === 0) {
     allVideoFiles = await getAllVideoFiles(shareURL, rootFiles, "0");
     if (Array.isArray(allVideoFiles) && allVideoFiles.length > 0) {
-      await setCachedJSON(cacheKey, allVideoFiles, MUOU_CACHE_EX_SECONDS);
+      await setCachedJSON(cacheKey, allVideoFiles, WONIU_CACHE_EX_SECONDS);
     }
   } else {
     logDetailDebug(`命中视频文件缓存: ${shareURL}, 数量: ${allVideoFiles.length}`);
@@ -882,8 +1055,8 @@ function buildMergedVideoFilesForScraping(panUrlResults, videoId) {
 }
 
 async function getMergedMetadataCached(videoId, vodName, mergedVideoFilesForScraping) {
-  const metadataCacheKey = buildCacheKey("muou:metadata", videoId);
-  const metadataRefreshLockKey = buildCacheKey("muou:metadataRefreshLock", videoId);
+  const metadataCacheKey = buildCacheKey("woniu4k:metadata", videoId);
+  const metadataRefreshLockKey = buildCacheKey("woniu4k:metadataRefreshLock", videoId);
 
   let scrapeData = null;
   let videoMappings = [];
@@ -900,7 +1073,7 @@ async function getMergedMetadataCached(videoId, vodName, mergedVideoFilesForScra
   const refreshMetadataInBackground = async () => {
     const refreshLock = await getCachedJSON(metadataRefreshLockKey);
     if (refreshLock) return;
-    await setCachedJSON(metadataRefreshLockKey, { refreshing: true }, MUOU_CACHE_EX_SECONDS);
+    await setCachedJSON(metadataRefreshLockKey, { refreshing: true }, WONIU_CACHE_EX_SECONDS);
 
     try {
       logDetailDebug(`后台统一刷新元数据: ${videoId}`);
@@ -910,7 +1083,7 @@ async function getMergedMetadataCached(videoId, vodName, mergedVideoFilesForScra
         scrapeData: metadata?.scrapeData || null,
         videoMappings: metadata?.videoMappings || [],
         scrapeType: metadata?.scrapeType || "",
-      }, MUOU_CACHE_EX_SECONDS);
+      }, WONIU_CACHE_EX_SECONDS);
     } catch (error) {
       OmniBox.log("warn", `后台统一刷新元数据失败: ${error.message}`);
     }
@@ -928,7 +1101,7 @@ async function getMergedMetadataCached(videoId, vodName, mergedVideoFilesForScra
         scrapeData,
         videoMappings,
         scrapeType,
-      }, MUOU_CACHE_EX_SECONDS);
+      }, WONIU_CACHE_EX_SECONDS);
       if (scrapeData) {
         OmniBox.log("info", `同步统一获取元数据成功, 标题: ${scrapeData.title || "未知"}, 映射数量: ${videoMappings.length}`);
       }
@@ -953,11 +1126,26 @@ async function getMergedMetadataCached(videoId, vodName, mergedVideoFilesForScra
 }
 
 function parseVodBaseInfo($, baseUrl) {
-  let vodName = $(".page-title")[0]?.children?.[0]?.data || "";
-  let vodPic = $($(".mobile-play")).find(".lazyload")[0]?.attribs?.["data-src"] || "";
-  if (vodPic && !vodPic.startsWith("http://") && !vodPic.startsWith("https://")) {
-    vodPic = baseUrl + vodPic;
-  }
+  let vodName =
+    $("h1").first().text().replace(/\s+/g, " ").trim() ||
+    $(".page-title").first().text().replace(/\s+/g, " ").trim() ||
+    $(".video-info-header h1").first().text().replace(/\s+/g, " ").trim() ||
+    $(".module-info-heading h1").first().text().replace(/\s+/g, " ").trim() ||
+    "";
+
+  let vodPic =
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+      .first()
+      .attr("data-src") ||
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+      .first()
+      .attr("data-original") ||
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+      .first()
+      .attr("src") ||
+    $($(".mobile-play")).find(".lazyload")[0]?.attribs?.["data-src"] ||
+    "";
+  vodPic = absUrl(vodPic, baseUrl);
 
   let vodYear = "";
   let vodDirector = "";
@@ -983,7 +1171,33 @@ function parseVodBaseInfo($, baseUrl) {
       vodDirector = value.trim();
     } else if (key.includes("主演")) {
       vodActor = value.trim();
+    } else if (key.includes("年代") || key.includes("年份") || key.includes("上映")) {
+      const yearText = $(item).next().text().trim() || value;
+      const m = yearText.match(/(19|20)\d{2}/);
+      if (m) vodYear = m[0];
     }
+  }
+
+  if (!vodContent) {
+    vodContent = cleanContent(
+      $(".vod_content,.module-info-introduction,.video-info-content,.module-info-main .module-info-item-content")
+        .last()
+        .text() || ""
+    );
+  }
+
+  const infoText = $(".video-info,.module-info-main,.module-info").text() || "";
+  if (!vodYear) {
+    const m = infoText.match(/(?:年代|年份|上映)[:：]?\s*(\d{4})/) || infoText.match(/\b(19|20)\d{2}\b/);
+    if (m) vodYear = String(m[1] || m[0]).replace(/\D/g, "").slice(0, 4);
+  }
+  if (!vodDirector) {
+    const m = infoText.match(/导演[:：]?\s*([^\n]+?)\s*(主演|年代|备注|剧情|$)/);
+    if (m) vodDirector = m[1].replace(/^\/\s*/, "").trim();
+  }
+  if (!vodActor) {
+    const m = infoText.match(/主演[:：]?\s*([^\n]+?)\s*(年代|备注|剧情|导演|$)/);
+    if (m) vodActor = m[1].replace(/^\/\s*/, "").trim();
   }
 
   return {
@@ -998,13 +1212,39 @@ function parseVodBaseInfo($, baseUrl) {
 
 function extractPanUrls($) {
   const panUrls = [];
-  const items = $(".module-row-info");
-  for (const item of items) {
-    const shareUrl = $(item).find("p")[0]?.children?.[0]?.data;
-    if (shareUrl) {
-      panUrls.push(shareUrl.trim());
+  const seen = new Set();
+
+  $(".module-row-info").each((_, el) => {
+    const candidates = [];
+    $(el).find("[data-clipboard-text]").each((__, n) => candidates.push($(n).attr("data-clipboard-text")));
+    $(el).find('a[href^="http"]').each((__, a) => candidates.push($(a).attr("href")));
+    $(el).find("i,p,span").each((__, p) => candidates.push($(p).text().trim()));
+    const firstP = $(el).find("p")[0]?.children?.[0]?.data;
+    if (firstP) candidates.push(firstP);
+
+    for (const raw of candidates) {
+      const url = extractPanUrl(raw);
+      if (!/^https?:\/\//i.test(url) || !isPanShareUrl(url)) continue;
+      if (seen.has(url)) continue;
+      seen.add(url);
+      panUrls.push(url);
+    }
+  });
+
+  // 兜底：整页扫描分享链接
+  if (panUrls.length === 0) {
+    const html = $.html() || "";
+    const re =
+      /https?:\/\/(?:115cdn\.com|115\.com|anxia\.com|pan\.quark\.cn|www\.aliyundrive\.com|www\.alipan\.com|pan\.baidu\.com|drive\.uc\.cn|cloud\.189\.cn|www\.123pan\.com|pan\.xunlei\.com)\/[^\s"'<>]+/gi;
+    let m;
+    while ((m = re.exec(html))) {
+      const url = normalizeShareUrl(m[0]);
+      if (!url || seen.has(url)) continue;
+      seen.add(url);
+      panUrls.push(url);
     }
   }
+
   return panUrls;
 }
 
@@ -1027,16 +1267,54 @@ async function collectDriveTypeCountMap(panUrls = []) {
  */
 async function detail(params, context) {
   try {
-    const videoId = params.videoId || "";
+    const rawVideoId = params.videoId || params.id || params.vod_id || "";
+    const videoId = normalizeVideoId(rawVideoId);
 
     if (!videoId) {
       throw new Error("视频ID不能为空");
     }
 
-    const source = params.source || "";
-    OmniBox.log("info", `获取视频详情: videoId=${videoId}, source=${source}`);
+    // 支持直接推送网盘分享链接
+    if (/^https?:\/\//i.test(String(videoId)) && isPanShareUrl(videoId)) {
+      const shareURL = normalizeShareUrl(videoId);
+      const driveInfo = await getDriveInfoCached(shareURL);
+      const displayName = driveInfo?.displayName || "网盘";
+      const fileList = await getRootFileListCached(shareURL);
+      const allVideoFiles = await getAllVideoFilesCached(shareURL, fileList?.files || []);
+      const episodes = (allVideoFiles || []).map((file) => {
+        const fileName = file.file_name || "";
+        const fileId = file.fid || "";
+        const fileSize = file.size || file.file_size || 0;
+        const basePlayId = fileId ? `${shareURL}|${fileId}` : "";
+        let displayFileName = fileName;
+        if (fileSize > 0) {
+          const fileSizeStr = formatFileSize(fileSize);
+          if (fileSizeStr) displayFileName = `[${fileSizeStr}] ${fileName}`;
+        }
+        return {
+          name: displayFileName,
+          playId: basePlayId,
+          size: fileSize > 0 ? fileSize : undefined,
+          rawName: fileName,
+        };
+      }).filter((ep) => ep.name && ep.playId);
+      return {
+        list: [{
+          vod_id: shareURL,
+          vod_name: `${displayName}推送`,
+          vod_pic: "",
+          vod_content: shareURL,
+          vod_play_sources: episodes.length > 0 ? [{ name: displayName, episodes }] : undefined,
+          vod_remarks: "网盘推送",
+        }],
+      };
+    }
 
-    const detailPage = await getDetailPageCached(videoId);
+    const source = params.source || "";
+    OmniBox.log("info", `蜗牛4K 获取视频详情: videoId=${videoId}, source=${source}`);
+
+    const detailPath = buildDetailPath(videoId);
+    const detailPage = await getDetailPageCached(detailPath);
     const { response, baseUrl } = detailPage;
 
     if (response.statusCode !== 200 || !response.body) {
@@ -1053,7 +1331,7 @@ async function detail(params, context) {
       vodContent,
     } = parseVodBaseInfo($, baseUrl);
 
-    const panUrls = extractPanUrls($);
+    const panUrls = extractPanUrls($).map(normalizeShareUrl).filter(Boolean);
     logDetailDebug(`解析完成,网盘链接数=${panUrls.length}`);
 
     let playSources = [];
@@ -1286,10 +1564,10 @@ async function detail(params, context) {
  */
 async function search(params) {
   try {
-    const keyword = params.keyword || "";
+    const keyword = params.keyword || params.wd || params.key || "";
     const page = parseInt(params.page || "1", 10);
 
-    OmniBox.log("info", `搜索视频: keyword=${keyword}, page=${page}`);
+    OmniBox.log("info", `蜗牛4K 搜索视频: keyword=${keyword}, page=${page}`);
 
     if (!keyword) {
       OmniBox.log("warn", "搜索关键词为空");
@@ -1301,7 +1579,24 @@ async function search(params) {
       };
     }
 
-    const searchPath = `/index.php/vod/search/page/${page}/wd/${keyword}.html`;
+    // 支持直接搜索网盘链接
+    if (/^https?:\/\//i.test(String(keyword)) && isPanShareUrl(keyword)) {
+      return {
+        list: [{
+          vod_id: normalizeShareUrl(keyword),
+          vod_name: "网盘推送",
+          vod_pic: "",
+          type_id: "",
+          type_name: "",
+          vod_remarks: "网盘推送",
+        }],
+        page: page,
+        pagecount: 1,
+        total: 1,
+      };
+    }
+
+    const searchPath = buildSearchPath(keyword, page);
     const { response, baseUrl } = await requestWithFailover(searchPath);
 
     if (response.statusCode !== 200 || !response.body) {
@@ -1314,47 +1609,19 @@ async function search(params) {
       };
     }
 
-    const $ = cheerio.load(response.body);
-    const videos = [];
+    const videos = parseListFromHtml(response.body, baseUrl);
+    const pagecount = parsePageCount(response.body, page);
 
-    const items = $(".module-search-item");
-    for (const item of items) {
-      const $item = $(item);
-      const videoSerial = $item.find(".video-serial")[0];
-      const vodPicImg = $item.find(".module-item-pic > img")[0];
-
-      if (videoSerial && videoSerial.attribs) {
-        const vodId = videoSerial.attribs.href || "";
-        const vodName = videoSerial.attribs.title || "";
-        let vodPic = vodPicImg?.attribs?.["data-src"] || "";
-        if (vodPic && !vodPic.startsWith("http://") && !vodPic.startsWith("https://")) {
-          vodPic = baseUrl + vodPic;
-        }
-        const vodRemarks = $($item.find(".video-serial")[0]).text() || "";
-
-        if (vodId && vodName) {
-          videos.push({
-            vod_id: vodId,
-            vod_name: vodName,
-            vod_pic: vodPic,
-            type_id: "",
-            type_name: "",
-            vod_remarks: vodRemarks,
-          });
-        }
-      }
-    }
-
-    OmniBox.log("info", `搜索完成,找到 ${videos.length} 个结果`);
+    OmniBox.log("info", `蜗牛4K 搜索完成,找到 ${videos.length} 个结果`);
 
     return {
       list: videos,
       page: page,
-      pagecount: 0,
+      pagecount: pagecount,
       total: videos.length,
     };
   } catch (error) {
-    OmniBox.log("error", `搜索视频失败: ${error.message}`);
+    OmniBox.log("error", `蜗牛4K 搜索视频失败: ${error.message}`);
     return {
       list: [],
       page: params.page || 1,
@@ -1426,12 +1693,17 @@ async function play(params, context) {
       try {
         const metadata = await OmniBox.getScrapeMetadata(videoId);
         if (!metadata || !metadata.scrapeData || !Array.isArray(metadata.videoMappings)) {
+          OmniBox.log("info", `蜗牛4K play 弹幕匹配跳过: metadata 不完整, videoId=${videoId}`);
           return result;
         }
 
+        OmniBox.log("info", `蜗牛4K play 弹幕元数据读取成功: videoId=${videoId}, mappings=${metadata.videoMappings.length}, scrapeType=${metadata.scrapeType || "unknown"}`);
+
         const formattedFileId = `${shareURL}|${fileId}|${videoId}`;
+        OmniBox.log("info", `蜗牛4K play 弹幕匹配 formattedFileId=${formattedFileId}`);
         const matchedMapping = metadata.videoMappings.find((mapping) => mapping && mapping.fileId === formattedFileId);
         if (!matchedMapping) {
+          OmniBox.log("info", `蜗牛4K play 弹幕匹配未命中 mapping: formattedFileId=${formattedFileId}`);
           return result;
         }
 
@@ -1461,15 +1733,19 @@ async function play(params, context) {
         }
 
         if (fileName) {
-          OmniBox.log("info", `生成fileName用于弹幕匹配: ${fileName}`);
+          OmniBox.log("info", `蜗牛4K play 生成fileName用于弹幕匹配: ${fileName}`);
           const matchedDanmaku = await OmniBox.getDanmakuByFileName(fileName);
-          if (Array.isArray(matchedDanmaku) && matchedDanmaku.length > 0) {
+          const count = Array.isArray(matchedDanmaku) ? matchedDanmaku.length : 0;
+          OmniBox.log("info", `蜗牛4K play 弹幕匹配结果: fileName=${fileName}, count=${count}`);
+          if (count > 0) {
             result.danmakuList = matchedDanmaku;
-            OmniBox.log("info", `弹幕匹配成功,找到 ${matchedDanmaku.length} 条弹幕`);
+            OmniBox.log("info", `蜗牛4K play 弹幕匹配成功,找到 ${count} 条弹幕`);
           }
+        } else {
+          OmniBox.log("info", `蜗牛4K play 弹幕匹配跳过: fileName 为空, formattedFileId=${formattedFileId}`);
         }
       } catch (error) {
-        OmniBox.log("warn", `弹幕匹配失败: ${error.message}`);
+        OmniBox.log("warn", `蜗牛4K play 弹幕匹配失败: ${error.message}`);
       }
 
       return result;
@@ -1541,8 +1817,16 @@ async function play(params, context) {
       });
     }
 
-    const header = playInfo.header || {};
+    let header = playInfo.header || {};
+    const shareURLLower = String(shareURL || "").toLowerCase();
+    const isUcDrive = shareURLLower.includes("drive.uc.cn") || shareURLLower.includes("pc-api.uc.cn") || shareURLLower.includes("uc.cn/s/");
+    if (isUcDrive && routeType == "直连") {
+      header = {};
+      OmniBox.log("info", "蜗牛4K play 命中 UC 直连特判，返回空 header");
+    }
     const finalDanmakuList = danmakuList && danmakuList.length > 0 ? danmakuList : playInfo.danmaku || [];
+
+    OmniBox.log("info", `实际播放地址: ${JSON.stringify(urlsResult)}`);
 
     return {
       urls: urlsResult,
@@ -1559,1655 +1843,8 @@ async function play(params, context) {
 }
 
 async function getDynamicFilters() {
-  return {
-    "1": [
-      {
-        "key": "tid",
-        "name": "类型",
-        "init": "",
-        "value": [
-          {
-            "name": "全部类型",
-            "value": ""
-          },
-          {
-            "name": "动作片",
-            "value": "12"
-          },
-          {
-            "name": "喜剧片",
-            "value": "102"
-          },
-          {
-            "name": "爱情片",
-            "value": "103"
-          },
-          {
-            "name": "科幻片",
-            "value": "104"
-          },
-          {
-            "name": "剧情片",
-            "value": "105"
-          },
-          {
-            "name": "悬疑片",
-            "value": "106"
-          },
-          {
-            "name": "惊悚片",
-            "value": "107"
-          },
-          {
-            "name": "恐怖片",
-            "value": "108"
-          },
-          {
-            "name": "犯罪片",
-            "value": "109"
-          },
-          {
-            "name": "武侠片",
-            "value": "110"
-          },
-          {
-            "name": "冒险片",
-            "value": "111"
-          },
-          {
-            "name": "奇幻片",
-            "value": "112"
-          },
-          {
-            "name": "战争片",
-            "value": "113"
-          },
-          {
-            "name": "记录片",
-            "value": "114"
-          }
-        ]
-      },
-      {
-        "key": "area",
-        "name": "地区",
-        "init": "",
-        "value": [
-          {
-            "name": "全部地区",
-            "value": ""
-          },
-          {
-            "name": "大陆",
-            "value": "大陆"
-          },
-          {
-            "name": "中国大陆",
-            "value": "中国大陆"
-          },
-          {
-            "name": "香港",
-            "value": "香港"
-          },
-          {
-            "name": "中国香港",
-            "value": "中国香港"
-          },
-          {
-            "name": "台湾",
-            "value": "台湾"
-          },
-          {
-            "name": "中国台湾",
-            "value": "中国台湾"
-          },
-          {
-            "name": "美国",
-            "value": "美国"
-          },
-          {
-            "name": "韩国",
-            "value": "韩国"
-          },
-          {
-            "name": "英国",
-            "value": "英国"
-          },
-          {
-            "name": "日本",
-            "value": "日本"
-          },
-          {
-            "name": "法国",
-            "value": "法国"
-          },
-          {
-            "name": "意大利",
-            "value": "意大利"
-          },
-          {
-            "name": "德国",
-            "value": "德国"
-          },
-          {
-            "name": "西班牙",
-            "value": "西班牙"
-          },
-          {
-            "name": "泰国",
-            "value": "泰国"
-          },
-          {
-            "name": "其它",
-            "value": "其它"
-          }
-        ]
-      },
-      {
-        "key": "lang",
-        "name": "语言",
-        "init": "",
-        "value": [
-          {
-            "name": "全部语言",
-            "value": ""
-          },
-          {
-            "name": "国语",
-            "value": "国语"
-          },
-          {
-            "name": "英语",
-            "value": "英语"
-          },
-          {
-            "name": "粤语",
-            "value": "粤语"
-          },
-          {
-            "name": "闽南语",
-            "value": "闽南语"
-          },
-          {
-            "name": "韩语",
-            "value": "韩语"
-          },
-          {
-            "name": "日语",
-            "value": "日语"
-          },
-          {
-            "name": "法语",
-            "value": "法语"
-          },
-          {
-            "name": "德语",
-            "value": "德语"
-          },
-          {
-            "name": "其它",
-            "value": "其它"
-          }
-        ]
-      },
-      {
-        "key": "year",
-        "name": "时间",
-        "init": "",
-        "value": [
-          {
-            "name": "全部时间",
-            "value": ""
-          },
-          {
-            "name": "2026",
-            "value": "2026"
-          },
-          {
-            "name": "2025",
-            "value": "2025"
-          },
-          {
-            "name": "2024",
-            "value": "2024"
-          },
-          {
-            "name": "2023",
-            "value": "2023"
-          },
-          {
-            "name": "2022",
-            "value": "2022"
-          },
-          {
-            "name": "2021",
-            "value": "2021"
-          },
-          {
-            "name": "2020",
-            "value": "2020"
-          },
-          {
-            "name": "2019",
-            "value": "2019"
-          },
-          {
-            "name": "2018",
-            "value": "2018"
-          },
-          {
-            "name": "2017",
-            "value": "2017"
-          },
-          {
-            "name": "2016",
-            "value": "2016"
-          },
-          {
-            "name": "2015",
-            "value": "2015"
-          },
-          {
-            "name": "2014",
-            "value": "2014"
-          },
-          {
-            "name": "2013",
-            "value": "2013"
-          },
-          {
-            "name": "2012",
-            "value": "2012"
-          },
-          {
-            "name": "2011",
-            "value": "2011"
-          },
-          {
-            "name": "2010",
-            "value": "2010"
-          }
-        ]
-      },
-      {
-        "key": "letter",
-        "name": "字母",
-        "init": "",
-        "value": [
-          {
-            "name": "全部字母",
-            "value": ""
-          },
-          {
-            "name": "A",
-            "value": "A"
-          },
-          {
-            "name": "B",
-            "value": "B"
-          },
-          {
-            "name": "C",
-            "value": "C"
-          },
-          {
-            "name": "D",
-            "value": "D"
-          },
-          {
-            "name": "E",
-            "value": "E"
-          },
-          {
-            "name": "F",
-            "value": "F"
-          },
-          {
-            "name": "G",
-            "value": "G"
-          },
-          {
-            "name": "H",
-            "value": "H"
-          },
-          {
-            "name": "I",
-            "value": "I"
-          },
-          {
-            "name": "J",
-            "value": "J"
-          },
-          {
-            "name": "K",
-            "value": "K"
-          },
-          {
-            "name": "L",
-            "value": "L"
-          },
-          {
-            "name": "M",
-            "value": "M"
-          },
-          {
-            "name": "name",
-            "value": "name"
-          },
-          {
-            "name": "O",
-            "value": "O"
-          },
-          {
-            "name": "P",
-            "value": "P"
-          },
-          {
-            "name": "Q",
-            "value": "Q"
-          },
-          {
-            "name": "R",
-            "value": "R"
-          },
-          {
-            "name": "S",
-            "value": "S"
-          },
-          {
-            "name": "T",
-            "value": "T"
-          },
-          {
-            "name": "U",
-            "value": "U"
-          },
-          {
-            "name": "value",
-            "value": "value"
-          },
-          {
-            "name": "W",
-            "value": "W"
-          },
-          {
-            "name": "X",
-            "value": "X"
-          },
-          {
-            "name": "Y",
-            "value": "Y"
-          },
-          {
-            "name": "Z",
-            "value": "Z"
-          },
-          {
-            "name": "0-9",
-            "value": "0-9"
-          }
-        ]
-      },
-      {
-        "key": "sort",
-        "name": "排序",
-        "init": "",
-        "value": [
-          {
-            "name": "默认排序",
-            "value": ""
-          },
-          {
-            "name": "人气",
-            "value": "hits"
-          },
-          {
-            "name": "评分",
-            "value": "score"
-          }
-        ]
-      }
-    ],
-    "2": [
-      {
-        "key": "tid",
-        "name": "类型",
-        "init": "",
-        "value": [
-          {
-            "name": "全部类型",
-            "value": ""
-          },
-          {
-            "name": "国产剧",
-            "value": "201"
-          },
-          {
-            "name": "港台剧",
-            "value": "202"
-          },
-          {
-            "name": "欧美韩剧",
-            "value": "203"
-          },
-          {
-            "name": "日韩剧",
-            "value": "204"
-          },
-          {
-            "name": "海外剧",
-            "value": "205"
-          }
-        ]
-      },
-      {
-        "key": "area",
-        "name": "地区",
-        "init": "",
-        "value": [
-          {
-            "name": "全部地区",
-            "value": ""
-          },
-          {
-            "name": "中国大陆",
-            "value": "中国大陆"
-          },
-          {
-            "name": "大陆",
-            "value": "大陆"
-          },
-          {
-            "name": "韩国",
-            "value": "韩国"
-          },
-          {
-            "name": "香港",
-            "value": "香港"
-          },
-          {
-            "name": "台湾",
-            "value": "台湾"
-          },
-          {
-            "name": "日本",
-            "value": "日本"
-          },
-          {
-            "name": "美国",
-            "value": "美国"
-          },
-          {
-            "name": "泰国",
-            "value": "泰国"
-          },
-          {
-            "name": "英国",
-            "value": "英国"
-          },
-          {
-            "name": "新加坡",
-            "value": "新加坡"
-          },
-          {
-            "name": "其他",
-            "value": "其他"
-          }
-        ]
-      },
-      {
-        "key": "lang",
-        "name": "语言",
-        "init": "",
-        "value": [
-          {
-            "name": "全部语言",
-            "value": ""
-          },
-          {
-            "name": "国语",
-            "value": "国语"
-          },
-          {
-            "name": "英语",
-            "value": "英语"
-          },
-          {
-            "name": "粤语",
-            "value": "粤语"
-          },
-          {
-            "name": "闽南语",
-            "value": "闽南语"
-          },
-          {
-            "name": "韩语",
-            "value": "韩语"
-          },
-          {
-            "name": "日语",
-            "value": "日语"
-          },
-          {
-            "name": "其它",
-            "value": "其它"
-          }
-        ]
-      },
-      {
-        "key": "year",
-        "name": "时间",
-        "init": "",
-        "value": [
-          {
-            "name": "全部时间",
-            "value": ""
-          },
-          {
-            "name": "2026",
-            "value": "2026"
-          },
-          {
-            "name": "2025",
-            "value": "2025"
-          },
-          {
-            "name": "2024",
-            "value": "2024"
-          },
-          {
-            "name": "2023",
-            "value": "2023"
-          },
-          {
-            "name": "2022",
-            "value": "2022"
-          },
-          {
-            "name": "2021",
-            "value": "2021"
-          },
-          {
-            "name": "2020",
-            "value": "2020"
-          },
-          {
-            "name": "2019",
-            "value": "2019"
-          },
-          {
-            "name": "2018",
-            "value": "2018"
-          },
-          {
-            "name": "2017",
-            "value": "2017"
-          },
-          {
-            "name": "2016",
-            "value": "2016"
-          },
-          {
-            "name": "2015",
-            "value": "2015"
-          },
-          {
-            "name": "2014",
-            "value": "2014"
-          },
-          {
-            "name": "2013",
-            "value": "2013"
-          },
-          {
-            "name": "2012",
-            "value": "2012"
-          },
-          {
-            "name": "2011",
-            "value": "2011"
-          },
-          {
-            "name": "2010",
-            "value": "2010"
-          }
-        ]
-      },
-      {
-        "key": "letter",
-        "name": "字母",
-        "init": "",
-        "value": [
-          {
-            "name": "全部字母",
-            "value": ""
-          },
-          {
-            "name": "A",
-            "value": "A"
-          },
-          {
-            "name": "B",
-            "value": "B"
-          },
-          {
-            "name": "C",
-            "value": "C"
-          },
-          {
-            "name": "D",
-            "value": "D"
-          },
-          {
-            "name": "E",
-            "value": "E"
-          },
-          {
-            "name": "F",
-            "value": "F"
-          },
-          {
-            "name": "G",
-            "value": "G"
-          },
-          {
-            "name": "H",
-            "value": "H"
-          },
-          {
-            "name": "I",
-            "value": "I"
-          },
-          {
-            "name": "J",
-            "value": "J"
-          },
-          {
-            "name": "K",
-            "value": "K"
-          },
-          {
-            "name": "L",
-            "value": "L"
-          },
-          {
-            "name": "M",
-            "value": "M"
-          },
-          {
-            "name": "name",
-            "value": "name"
-          },
-          {
-            "name": "O",
-            "value": "O"
-          },
-          {
-            "name": "P",
-            "value": "P"
-          },
-          {
-            "name": "Q",
-            "value": "Q"
-          },
-          {
-            "name": "R",
-            "value": "R"
-          },
-          {
-            "name": "S",
-            "value": "S"
-          },
-          {
-            "name": "T",
-            "value": "T"
-          },
-          {
-            "name": "U",
-            "value": "U"
-          },
-          {
-            "name": "value",
-            "value": "value"
-          },
-          {
-            "name": "W",
-            "value": "W"
-          },
-          {
-            "name": "X",
-            "value": "X"
-          },
-          {
-            "name": "Y",
-            "value": "Y"
-          },
-          {
-            "name": "Z",
-            "value": "Z"
-          },
-          {
-            "name": "0-9",
-            "value": "0-9"
-          }
-        ]
-      },
-      {
-        "key": "sort",
-        "name": "排序",
-        "init": "",
-        "value": [
-          {
-            "name": "默认排序",
-            "value": ""
-          },
-          {
-            "name": "人气",
-            "value": "hits"
-          },
-          {
-            "name": "评分",
-            "value": "score"
-          }
-        ]
-      }
-    ],
-    "3": [
-      {
-        "key": "tid",
-        "name": "类型",
-        "init": "",
-        "value": [
-          {
-            "name": "全部类型",
-            "value": ""
-          },
-          {
-            "name": "大陆综艺",
-            "value": "301"
-          },
-          {
-            "name": "港台综艺",
-            "value": "302"
-          },
-          {
-            "name": "欧美综艺",
-            "value": "303"
-          },
-          {
-            "name": "日韩综艺",
-            "value": "304"
-          }
-        ]
-      },
-      {
-        "key": "area",
-        "name": "地区",
-        "init": "",
-        "value": [
-          {
-            "name": "全部地区",
-            "value": ""
-          },
-          {
-            "name": "大陆",
-            "value": "大陆"
-          },
-          {
-            "name": "中国大陆",
-            "value": "中国大陆"
-          },
-          {
-            "name": "韩国",
-            "value": "韩国"
-          },
-          {
-            "name": "香港",
-            "value": "香港"
-          },
-          {
-            "name": "台湾",
-            "value": "台湾"
-          },
-          {
-            "name": "美国",
-            "value": "美国"
-          },
-          {
-            "name": "英国",
-            "value": "英国"
-          },
-          {
-            "name": "日本",
-            "value": "日本"
-          },
-          {
-            "name": "法国",
-            "value": "法国"
-          },
-          {
-            "name": "意大利",
-            "value": "意大利"
-          },
-          {
-            "name": "德国",
-            "value": "德国"
-          },
-          {
-            "name": "西班牙",
-            "value": "西班牙"
-          },
-          {
-            "name": "泰国",
-            "value": "泰国"
-          },
-          {
-            "name": "其它",
-            "value": "其它"
-          }
-        ]
-      },
-      {
-        "key": "lang",
-        "name": "语言",
-        "init": "",
-        "value": [
-          {
-            "name": "全部语言",
-            "value": ""
-          },
-          {
-            "name": "国语",
-            "value": "国语"
-          },
-          {
-            "name": "英语",
-            "value": "英语"
-          },
-          {
-            "name": "粤语",
-            "value": "粤语"
-          },
-          {
-            "name": "闽南语",
-            "value": "闽南语"
-          },
-          {
-            "name": "韩语",
-            "value": "韩语"
-          },
-          {
-            "name": "日语",
-            "value": "日语"
-          },
-          {
-            "name": "法语",
-            "value": "法语"
-          },
-          {
-            "name": "德语",
-            "value": "德语"
-          },
-          {
-            "name": "其它",
-            "value": "其它"
-          }
-        ]
-      },
-      {
-        "key": "year",
-        "name": "时间",
-        "init": "",
-        "value": [
-          {
-            "name": "全部时间",
-            "value": ""
-          },
-          {
-            "name": "2026",
-            "value": "2026"
-          },
-          {
-            "name": "2025",
-            "value": "2025"
-          },
-          {
-            "name": "2024",
-            "value": "2024"
-          },
-          {
-            "name": "2023",
-            "value": "2023"
-          },
-          {
-            "name": "2022",
-            "value": "2022"
-          },
-          {
-            "name": "2021",
-            "value": "2021"
-          },
-          {
-            "name": "2020",
-            "value": "2020"
-          },
-          {
-            "name": "2019",
-            "value": "2019"
-          },
-          {
-            "name": "2018",
-            "value": "2018"
-          },
-          {
-            "name": "2017",
-            "value": "2017"
-          },
-          {
-            "name": "2016",
-            "value": "2016"
-          },
-          {
-            "name": "2015",
-            "value": "2015"
-          },
-          {
-            "name": "2014",
-            "value": "2014"
-          },
-          {
-            "name": "2013",
-            "value": "2013"
-          },
-          {
-            "name": "2012",
-            "value": "2012"
-          },
-          {
-            "name": "2011",
-            "value": "2011"
-          },
-          {
-            "name": "2010",
-            "value": "2010"
-          }
-        ]
-      },
-      {
-        "key": "letter",
-        "name": "字母",
-        "init": "",
-        "value": [
-          {
-            "name": "全部字母",
-            "value": ""
-          },
-          {
-            "name": "A",
-            "value": "A"
-          },
-          {
-            "name": "B",
-            "value": "B"
-          },
-          {
-            "name": "C",
-            "value": "C"
-          },
-          {
-            "name": "D",
-            "value": "D"
-          },
-          {
-            "name": "E",
-            "value": "E"
-          },
-          {
-            "name": "F",
-            "value": "F"
-          },
-          {
-            "name": "G",
-            "value": "G"
-          },
-          {
-            "name": "H",
-            "value": "H"
-          },
-          {
-            "name": "I",
-            "value": "I"
-          },
-          {
-            "name": "J",
-            "value": "J"
-          },
-          {
-            "name": "K",
-            "value": "K"
-          },
-          {
-            "name": "L",
-            "value": "L"
-          },
-          {
-            "name": "M",
-            "value": "M"
-          },
-          {
-            "name": "name",
-            "value": "name"
-          },
-          {
-            "name": "O",
-            "value": "O"
-          },
-          {
-            "name": "P",
-            "value": "P"
-          },
-          {
-            "name": "Q",
-            "value": "Q"
-          },
-          {
-            "name": "R",
-            "value": "R"
-          },
-          {
-            "name": "S",
-            "value": "S"
-          },
-          {
-            "name": "T",
-            "value": "T"
-          },
-          {
-            "name": "U",
-            "value": "U"
-          },
-          {
-            "name": "value",
-            "value": "value"
-          },
-          {
-            "name": "W",
-            "value": "W"
-          },
-          {
-            "name": "X",
-            "value": "X"
-          },
-          {
-            "name": "Y",
-            "value": "Y"
-          },
-          {
-            "name": "Z",
-            "value": "Z"
-          },
-          {
-            "name": "0-9",
-            "value": "0-9"
-          }
-        ]
-      },
-      {
-        "key": "sort",
-        "name": "排序",
-        "init": "",
-        "value": [
-          {
-            "name": "默认排序",
-            "value": ""
-          },
-          {
-            "name": "人气",
-            "value": "hits"
-          },
-          {
-            "name": "评分",
-            "value": "score"
-          }
-        ]
-      }
-    ],
-    "4": [
-      {
-        "key": "tid",
-        "name": "类型",
-        "init": "",
-        "value": [
-          {
-            "name": "全部类型",
-            "value": ""
-          },
-          {
-            "name": "动画片",
-            "value": "401"
-          },
-          {
-            "name": "国产动漫",
-            "value": "402"
-          },
-          {
-            "name": "日韩动漫",
-            "value": "403"
-          },
-          {
-            "name": "欧美动漫",
-            "value": "404"
-          },
-          {
-            "name": "港台动漫",
-            "value": "405"
-          },
-          {
-            "name": "海外动漫",
-            "value": "406"
-          }
-        ]
-      },
-      {
-        "key": "area",
-        "name": "地区",
-        "init": "",
-        "value": [
-          {
-            "name": "全部地区",
-            "value": ""
-          },
-          {
-            "name": "大陆",
-            "value": "大陆"
-          },
-          {
-            "name": "中国大陆",
-            "value": "中国大陆"
-          },
-          {
-            "name": "韩国",
-            "value": "韩国"
-          },
-          {
-            "name": "香港",
-            "value": "香港"
-          },
-          {
-            "name": "台湾",
-            "value": "台湾"
-          },
-          {
-            "name": "美国",
-            "value": "美国"
-          },
-          {
-            "name": "英国",
-            "value": "英国"
-          },
-          {
-            "name": "日本",
-            "value": "日本"
-          },
-          {
-            "name": "法国",
-            "value": "法国"
-          },
-          {
-            "name": "意大利",
-            "value": "意大利"
-          },
-          {
-            "name": "德国",
-            "value": "德国"
-          },
-          {
-            "name": "西班牙",
-            "value": "西班牙"
-          },
-          {
-            "name": "泰国",
-            "value": "泰国"
-          },
-          {
-            "name": "其它",
-            "value": "其它"
-          }
-        ]
-      },
-      {
-        "key": "lang",
-        "name": "语言",
-        "init": "",
-        "value": [
-          {
-            "name": "全部语言",
-            "value": ""
-          },
-          {
-            "name": "国语",
-            "value": "国语"
-          },
-          {
-            "name": "英语",
-            "value": "英语"
-          },
-          {
-            "name": "粤语",
-            "value": "粤语"
-          },
-          {
-            "name": "闽南语",
-            "value": "闽南语"
-          },
-          {
-            "name": "韩语",
-            "value": "韩语"
-          },
-          {
-            "name": "日语",
-            "value": "日语"
-          },
-          {
-            "name": "法语",
-            "value": "法语"
-          },
-          {
-            "name": "德语",
-            "value": "德语"
-          },
-          {
-            "name": "其它",
-            "value": "其它"
-          }
-        ]
-      },
-      {
-        "key": "year",
-        "name": "时间",
-        "init": "",
-        "value": [
-          {
-            "name": "全部时间",
-            "value": ""
-          },
-          {
-            "name": "2026",
-            "value": "2026"
-          },
-          {
-            "name": "2025",
-            "value": "2025"
-          },
-          {
-            "name": "2024",
-            "value": "2024"
-          },
-          {
-            "name": "2023",
-            "value": "2023"
-          },
-          {
-            "name": "2022",
-            "value": "2022"
-          },
-          {
-            "name": "2021",
-            "value": "2021"
-          },
-          {
-            "name": "2020",
-            "value": "2020"
-          },
-          {
-            "name": "2019",
-            "value": "2019"
-          },
-          {
-            "name": "2018",
-            "value": "2018"
-          },
-          {
-            "name": "2017",
-            "value": "2017"
-          },
-          {
-            "name": "2016",
-            "value": "2016"
-          },
-          {
-            "name": "2015",
-            "value": "2015"
-          },
-          {
-            "name": "2014",
-            "value": "2014"
-          },
-          {
-            "name": "2013",
-            "value": "2013"
-          },
-          {
-            "name": "2012",
-            "value": "2012"
-          },
-          {
-            "name": "2011",
-            "value": "2011"
-          },
-          {
-            "name": "2010",
-            "value": "2010"
-          }
-        ]
-      },
-      {
-        "key": "letter",
-        "name": "字母",
-        "init": "",
-        "value": [
-          {
-            "name": "全部字母",
-            "value": ""
-          },
-          {
-            "name": "A",
-            "value": "A"
-          },
-          {
-            "name": "B",
-            "value": "B"
-          },
-          {
-            "name": "C",
-            "value": "C"
-          },
-          {
-            "name": "D",
-            "value": "D"
-          },
-          {
-            "name": "E",
-            "value": "E"
-          },
-          {
-            "name": "F",
-            "value": "F"
-          },
-          {
-            "name": "G",
-            "value": "G"
-          },
-          {
-            "name": "H",
-            "value": "H"
-          },
-          {
-            "name": "I",
-            "value": "I"
-          },
-          {
-            "name": "J",
-            "value": "J"
-          },
-          {
-            "name": "K",
-            "value": "K"
-          },
-          {
-            "name": "L",
-            "value": "L"
-          },
-          {
-            "name": "M",
-            "value": "M"
-          },
-          {
-            "name": "name",
-            "value": "name"
-          },
-          {
-            "name": "O",
-            "value": "O"
-          },
-          {
-            "name": "P",
-            "value": "P"
-          },
-          {
-            "name": "Q",
-            "value": "Q"
-          },
-          {
-            "name": "R",
-            "value": "R"
-          },
-          {
-            "name": "S",
-            "value": "S"
-          },
-          {
-            "name": "T",
-            "value": "T"
-          },
-          {
-            "name": "U",
-            "value": "U"
-          },
-          {
-            "name": "value",
-            "value": "value"
-          },
-          {
-            "name": "W",
-            "value": "W"
-          },
-          {
-            "name": "X",
-            "value": "X"
-          },
-          {
-            "name": "Y",
-            "value": "Y"
-          },
-          {
-            "name": "Z",
-            "value": "Z"
-          },
-          {
-            "name": "0-9",
-            "value": "0-9"
-          }
-        ]
-      },
-      {
-        "key": "sort",
-        "name": "排序",
-        "init": "",
-        "value": [
-          {
-            "name": "默认排序",
-            "value": ""
-          },
-          {
-            "name": "人气",
-            "value": "hits"
-          },
-          {
-            "name": "评分",
-            "value": "score"
-          }
-        ]
-      }
-    ],
-    "30": [
-      {
-        "key": "year",
-        "name": "时间",
-        "init": "",
-        "value": [
-          {
-            "name": "全部时间",
-            "value": ""
-          },
-          {
-            "name": "2026",
-            "value": "2026"
-          },
-          {
-            "name": "2025",
-            "value": "2025"
-          },
-          {
-            "name": "2024",
-            "value": "2024"
-          },
-          {
-            "name": "2023",
-            "value": "2023"
-          }
-        ]
-      },
-      {
-        "key": "letter",
-        "name": "字母",
-        "init": "",
-        "value": [
-          {
-            "name": "全部字母",
-            "value": ""
-          },
-          {
-            "name": "A",
-            "value": "A"
-          },
-          {
-            "name": "B",
-            "value": "B"
-          },
-          {
-            "name": "C",
-            "value": "C"
-          },
-          {
-            "name": "D",
-            "value": "D"
-          },
-          {
-            "name": "E",
-            "value": "E"
-          },
-          {
-            "name": "F",
-            "value": "F"
-          },
-          {
-            "name": "G",
-            "value": "G"
-          },
-          {
-            "name": "H",
-            "value": "H"
-          },
-          {
-            "name": "I",
-            "value": "I"
-          },
-          {
-            "name": "J",
-            "value": "J"
-          },
-          {
-            "name": "K",
-            "value": "K"
-          },
-          {
-            "name": "L",
-            "value": "L"
-          },
-          {
-            "name": "M",
-            "value": "M"
-          },
-          {
-            "name": "name",
-            "value": "name"
-          },
-          {
-            "name": "O",
-            "value": "O"
-          },
-          {
-            "name": "P",
-            "value": "P"
-          },
-          {
-            "name": "Q",
-            "value": "Q"
-          },
-          {
-            "name": "R",
-            "value": "R"
-          },
-          {
-            "name": "S",
-            "value": "S"
-          },
-          {
-            "name": "T",
-            "value": "T"
-          },
-          {
-            "name": "U",
-            "value": "U"
-          },
-          {
-            "name": "value",
-            "value": "value"
-          },
-          {
-            "name": "W",
-            "value": "W"
-          },
-          {
-            "name": "X",
-            "value": "X"
-          },
-          {
-            "name": "Y",
-            "value": "Y"
-          },
-          {
-            "name": "Z",
-            "value": "Z"
-          },
-          {
-            "name": "0-9",
-            "value": "0-9"
-          }
-        ]
-      },
-      {
-        "key": "sort",
-        "name": "排序",
-        "init": "",
-        "value": [
-          {
-            "name": "默认排序",
-            "value": ""
-          },
-          {
-            "name": "人气",
-            "value": "hits"
-          },
-          {
-            "name": "评分",
-            "value": "score"
-          }
-        ]
-      }
-    ]
-  };
+  // 蜗牛 mxone 模板默认筛选较简，空配置时走自动抓取
+  return {};
 }
 
 module.exports = {

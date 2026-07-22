@@ -1,8 +1,8 @@
 // @name 玩偶聚合
 // @author @lucky_TJQ
-// @description 聚合玩偶、木偶、蜡笔、闪电、至臻、二小、虎斑、快映、欧哥、多多等网盘站点；支持刮削、弹幕、多线路、二级分类筛选、翻页、网盘排序
+// @description 聚合玩偶、木偶、蜡笔、闪电、至臻、二小、虎斑、快映、欧哥、多多、蜗牛4K等网盘站点；支持刮削、弹幕、多线路、二级分类筛选、翻页、网盘排序
 // @dependencies axios,cheerio
-// @version 1.2.2
+// @version 1.2.4
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/玩偶聚合.js
 
 const OmniBox = require("omnibox_sdk");
@@ -59,6 +59,7 @@ const KUAIYING_SITES = splitSites(process.env.WEB_SITE_XIAOBAN || " http://38.76
 const SHANDIAN_SITES = splitSites(process.env.WEB_SITE_SHANDIAN || "https://sd.sduc.site;");
 const OUGE_SITES = splitSites(process.env.WEB_SITE_OUGE || "https://woog.nxog.eu.org;");
 const DUODUO_SITES = splitSites(process.env.WEB_SITE_DUODUO || "https://tv.yydsys.top;https://tv.214521.xyz;https://tv.yydsys.cc;https://yydsys.de5.net;https://duo.hidns.vip;");
+const WONIU4K_SITES = splitSites(process.env.WEB_SITE_WONIU4K || "https://zmi.kdns.fr;");
 
 const SITES = [];
 
@@ -173,6 +174,23 @@ pushSiteIfAny({
   detailPanSelector: ".module-row-info p",
   searchListSelector: ".module-search-item",
   defaultCategories: { "1": "多多电影", "2": "多多剧集", "3": "综艺", "4": "动漫", "5": "短剧", "20": "记录" },
+});
+
+// 蜗牛4K：MacCMS mxone 伪静态，主推 115（含 115cdn/anxia）
+pushSiteIfAny({
+  id: "woniu4k",
+  name: "蜗牛4K",
+  filterFiles: [],
+  domains: WONIU4K_SITES,
+  listSelector: ".module-item",
+  detailPanSelector: ".module-row-info",
+  categoryUrl: "/vodtype/{categoryId}/",
+  categoryUrlPage: "/vodtype/{categoryId}-{page}/",
+  searchUrl: "/vodsearch/{keyword}-------------/",
+  searchUrlPage: "/vodsearch/{keyword}----------{page}---/",
+  searchListSelector: ".module-search-item,.module-item",
+  panExtractMode: "mxone",
+  defaultCategories: { "1": "电影", "2": "连续剧", "3": "综艺", "4": "动漫" },
 });
 
 if (SITES.length === 0) {
@@ -506,39 +524,125 @@ function hasSecondaryFilters(filters = {}) {
 function buildCategoryUrl(site, categoryId, page = 1, filters = {}) {
   const safeFilters = filters || {};
   const byValue = safeFilters.by || safeFilters.sort || "";
-
-  if (site.categoryUrlWithFilters) {
-    let url = site.categoryUrlWithFilters;
-    const replacements = {
-      categoryId: categoryId || "",
-      page: page || 1,
-      class: encodeFilterSegment(safeFilters.class),
-      area: encodeFilterSegment(safeFilters.area),
-      year: encodeFilterSegment(safeFilters.year),
-      by: encodeFilterSegment(byValue),
-      letter: encodeFilterSegment(safeFilters.letter),
-    };
-    for (const [key, value] of Object.entries(replacements)) {
-      url = url.replace(new RegExp(`\\{${key}\\}`, "g"), String(value));
-    }
-    return url;
-  }
-
-  if (site.categoryUrl) {
-    return site.categoryUrl.replace("{categoryId}", categoryId).replace("{page}", page);
-  }
+  const pg = Math.max(1, parseInt(page || "1", 10) || 1);
 
   if (hasSecondaryFilters(safeFilters)) {
+    if (site.categoryUrlWithFilters) {
+      let url = site.categoryUrlWithFilters;
+      const replacements = {
+        categoryId: categoryId || "",
+        page: pg,
+        class: encodeFilterSegment(safeFilters.class),
+        area: encodeFilterSegment(safeFilters.area),
+        year: encodeFilterSegment(safeFilters.year),
+        by: encodeFilterSegment(byValue),
+        letter: encodeFilterSegment(safeFilters.letter),
+      };
+      for (const [key, value] of Object.entries(replacements)) {
+        url = url.replace(new RegExp(`\\{${key}\\}`, "g"), String(value));
+      }
+      return url;
+    }
+
     const segments = [];
     for (const [key, rawValue] of Object.entries(safeFilters)) {
       if (key === "categoryId" || rawValue == null || rawValue === "") continue;
       const mappedKey = key === "sort" ? "by" : key;
       segments.push(`/${mappedKey}/${encodeFilterSegment(rawValue)}`);
     }
-    return `/index.php/vod/show/id/${categoryId}${segments.join("")}/page/${page}.html`;
+    return `/index.php/vod/show/id/${categoryId}${segments.join("")}/page/${pg}.html`;
   }
 
-  return `/index.php/vod/show/id/${categoryId}/page/${page}.html`;
+  // mxone 伪静态：第 1 页 /vodtype/1/，后续 /vodtype/1-2/
+  if (site.categoryUrlPage && pg > 1) {
+    return site.categoryUrlPage
+      .replace(/\{categoryId\}/g, categoryId)
+      .replace(/\{page\}/g, String(pg));
+  }
+
+  if (site.categoryUrl) {
+    return site.categoryUrl
+      .replace(/\{categoryId\}/g, categoryId)
+      .replace(/\{page\}/g, String(pg));
+  }
+
+  return `/index.php/vod/show/id/${categoryId}/page/${pg}.html`;
+}
+
+function buildSearchUrl(site, keyword, page = 1) {
+  const enc = encodeURIComponent(String(keyword || "").trim());
+  const pg = Math.max(1, parseInt(page || "1", 10) || 1);
+
+  if (site.searchUrlPage && pg > 1) {
+    return site.searchUrlPage
+      .replace(/\{keyword\}/g, enc)
+      .replace(/\{page\}/g, String(pg));
+  }
+
+  if (site.searchUrl) {
+    return site.searchUrl
+      .replace(/\{keyword\}/g, enc)
+      .replace(/\{page\}/g, String(pg));
+  }
+
+  return `/index.php/vod/search/page/${pg}/wd/${enc}.html`;
+}
+
+function normalizeShareUrl(url) {
+  let u = String(url || "").trim().replace(/&amp;/g, "&");
+  if (!u) return "";
+  u = u.replace(/^https?:\/\/(?:www\.)?115cdn\.com\//i, "https://115.com/");
+  u = u.replace(/^https?:\/\/(?:www\.)?anxia\.com\//i, "https://115.com/");
+  return u.replace(/[),.;]+$/, "");
+}
+
+function extractPanUrl(raw) {
+  const s = String(raw || "").replace(/&amp;/g, "&").trim();
+  const m = s.match(/https?:\/\/[^\s"'<>]+/i);
+  return m ? normalizeShareUrl(m[0]) : "";
+}
+
+function isPanShareUrl(url = "") {
+  return /115|quark|aliyun|alipan|baidu|uc\.cn|123pan|189\.cn|xunlei|anxia/i.test(String(url || ""));
+}
+
+function extractPanUrlsFromDetail($, site) {
+  const panUrls = [];
+  const seen = new Set();
+  const pushUrl = (raw) => {
+    const url = extractPanUrl(raw);
+    if (!url || !/^https?:\/\//i.test(url) || !isPanShareUrl(url)) return;
+    if (seen.has(url)) return;
+    seen.add(url);
+    panUrls.push(url);
+  };
+
+  // mxone / 蜗牛：clipboard、a 标签、p/i/span 文本
+  if (site.panExtractMode === "mxone") {
+    $(".module-row-info").each((_, el) => {
+      $(el).find("[data-clipboard-text]").each((__, n) => pushUrl($(n).attr("data-clipboard-text")));
+      $(el).find('a[href^="http"]').each((__, a) => pushUrl($(a).attr("href")));
+      $(el).find("i,p,span").each((__, p) => pushUrl($(p).text().trim()));
+      const firstP = $(el).find("p")[0]?.children?.[0]?.data;
+      if (firstP) pushUrl(firstP);
+    });
+  } else {
+    const selector = site.detailPanSelector || ".module-row-info p";
+    $(selector).each((_, p) => pushUrl($(p).text().trim()));
+  }
+
+  // 兜底：整页扫描分享链接（含 115cdn/anxia）
+  if (panUrls.length === 0) {
+    const html = $.html() || "";
+    const re =
+      /https?:\/\/(?:115cdn\.com|115\.com|anxia\.com|pan\.quark\.cn|www\.aliyundrive\.com|www\.alipan\.com|pan\.baidu\.com|drive\.uc\.cn|cloud\.189\.cn|www\.123pan\.com|pan\.xunlei\.com)\/[^\s"'<>]+/gi;
+    let m;
+    while ((m = re.exec(html))) {
+      pushUrl(m[0]);
+    }
+  }
+
+  return panUrls;
 }
 
 function parseTotalPages($) {
@@ -551,6 +655,11 @@ function parseTotalPages($) {
       pageLinks.each((_, el) => {
         const pageNum = parseInt($(el).text().trim(), 10);
         if (!Number.isNaN(pageNum) && pageNum > maxPage) maxPage = pageNum;
+        const href = $(el).attr("href") || "";
+        const mType = href.match(/\/vodtype\/\d+-(\d+)\/?/i);
+        if (mType) maxPage = Math.max(maxPage, parseInt(mType[1], 10) || 1);
+        const mSearch = href.match(/\/vodsearch\/[^/]*?----------+(\d+)---+\/?/i);
+        if (mSearch) maxPage = Math.max(maxPage, parseInt(mSearch[1], 10) || 1);
       });
       if (maxPage > 1) {
         totalPages = maxPage;
@@ -558,9 +667,19 @@ function parseTotalPages($) {
       }
     }
   }
+
+  // mxone 兜底：扫描全页分页链接
+  $("a[href*='/vodtype/'],a[href*='/vodsearch/']").each((_, a) => {
+    const href = $(a).attr("href") || "";
+    let m = href.match(/\/vodtype\/\d+-(\d+)\/?/i);
+    if (m) totalPages = Math.max(totalPages, parseInt(m[1], 10) || 1);
+    m = href.match(/\/vodsearch\/[^/]*?----------+(\d+)---+\/?/i);
+    if (m) totalPages = Math.max(totalPages, parseInt(m[1], 10) || 1);
+  });
+
   const pageText = $(".page-text, .page_info, .page-count").text();
   const pageMatch = pageText.match(/共\s*(\d+)\s*页/);
-  if (pageMatch) totalPages = parseInt(pageMatch[1], 10) || 1;
+  if (pageMatch) totalPages = Math.max(totalPages, parseInt(pageMatch[1], 10) || 1);
   return totalPages;
 }
 
@@ -627,9 +746,7 @@ async function getEpisodesFromDrive(url, driveKey, drives, source = "") {
 
 // ==================== 站点抓取 ====================
 async function fetchSiteSearch(site, keyword, page = 1) {
-  const searchUrl = site.searchUrl
-    ? site.searchUrl.replace("{keyword}", encodeURIComponent(keyword)).replace("{page}", page)
-    : `/index.php/vod/search/page/${page}/wd/${encodeURIComponent(keyword)}.html`;
+  const searchUrl = buildSearchUrl(site, keyword, page);
 
   try {
     const { response, baseUrl } = await requestWithFailover(site.domains, searchUrl);
@@ -637,19 +754,56 @@ async function fetchSiteSearch(site, keyword, page = 1) {
     const itemSelector = site.searchListSelector || ".module-search-item";
     const items = $(itemSelector);
     const videos = [];
+    const seen = new Set();
 
     items.each((_, el) => {
       const $item = $(el);
-      const href = $item.find(".video-serial").attr("href") || $item.find(".module-item-pic a").attr("href") || $item.find(".module-item-title").attr("href");
-      const vodName = $item.find(".video-serial").attr("title") || $item.find(".module-item-pic img").attr("alt") || $item.find(".module-item-title").attr("title") || $item.find(".module-item-title").text().trim();
-      let vodPic = $item.find(".module-item-pic img").attr("data-src") || $item.find(".module-item-pic img").attr("src");
+      const href =
+        $item.find(".video-serial").attr("href") ||
+        $item.find(".module-item-pic a").attr("href") ||
+        $item.find('a[href*="/voddetail/"]').attr("href") ||
+        $item.find('a[href*="/vod/detail/"]').attr("href") ||
+        $item.find(".module-item-title").attr("href");
+      const vodName = (
+        $item.find(".video-serial").attr("title") ||
+        $item.find(".module-item-pic img").attr("alt") ||
+        $item.find(".module-item-title").attr("title") ||
+        $item.find(".module-poster-item-title").text() ||
+        $item.find(".module-item-title").text() ||
+        $item.find("h3,h4").first().text() ||
+        ""
+      )
+        .replace(/\s+/g, " ")
+        .replace(/^立刻播放|^下载/g, "")
+        .trim();
+      let vodPic =
+        $item.find(".module-item-pic img").attr("data-src") ||
+        $item.find(".module-item-pic img").attr("data-original") ||
+        $item.find(".module-item-pic img").attr("src") ||
+        $item.find("img").first().attr("data-src") ||
+        $item.find("img").first().attr("data-original") ||
+        $item.find("img").first().attr("src");
+      if (vodPic && vodPic.includes("loading.gif")) {
+        vodPic =
+          $item.find("img").first().attr("data-src") ||
+          $item.find("img").first().attr("data-original") ||
+          "";
+      }
       if (vodPic && !vodPic.startsWith("http")) vodPic = baseUrl + vodPic;
-      const vodRemarks = $item.find(".module-item-text").text().trim();
+      const vodRemarks =
+        $item.find(".module-item-text").text().trim() ||
+        $item.find(".module-item-note").text().trim() ||
+        $item.find(".module-poster-item-note").text().trim() ||
+        $item.find(".video-serial").text().trim() ||
+        "";
       const vodYear = $item.find(".module-item-caption span").first().text().trim();
 
       if (href && vodName) {
+        const vodId = `${site.id}_${href}`;
+        if (seen.has(vodId)) return;
+        seen.add(vodId);
         videos.push({
-          vod_id: `${site.id}_${href}`,
+          vod_id: vodId,
           vod_name: `[${site.name}] ${vodName}`,
           vod_pic: vodPic || "",
           type_id: "",
@@ -680,11 +834,42 @@ async function fetchSiteCategoryList(site, categoryId, page = 1, filters = {}) {
 
   $(site.listSelector).each((_, el) => {
     const $item = $(el);
-    const href = $item.find(".module-item-pic a").attr("href") || $item.find(".module-item-title").attr("href");
-    const vodName = $item.find(".module-item-pic img").attr("alt") || $item.find(".module-item-title").attr("title") || $item.find(".module-item-title").text().trim();
-    let vodPic = $item.find(".module-item-pic img").attr("data-src") || $item.find(".module-item-pic img").attr("src");
+    const href =
+      $item.find(".module-item-pic a").attr("href") ||
+      $item.find('a[href*="/voddetail/"]').attr("href") ||
+      $item.find('a[href*="/vod/detail/"]').attr("href") ||
+      $item.find(".module-item-title").attr("href");
+    const vodName = (
+      $item.find(".module-item-pic img").attr("alt") ||
+      $item.find(".module-item-title").attr("title") ||
+      $item.find(".module-poster-item-title").text() ||
+      $item.find(".module-item-title").text() ||
+      $item.find("h3,h4").first().text() ||
+      ""
+    )
+      .replace(/\s+/g, " ")
+      .replace(/^立刻播放|^下载/g, "")
+      .trim();
+    let vodPic =
+      $item.find(".module-item-pic img").attr("data-src") ||
+      $item.find(".module-item-pic img").attr("data-original") ||
+      $item.find(".module-item-pic img").attr("src") ||
+      $item.find("img").first().attr("data-src") ||
+      $item.find("img").first().attr("data-original") ||
+      $item.find("img").first().attr("src");
+    if (vodPic && vodPic.includes("loading.gif")) {
+      vodPic =
+        $item.find("img").first().attr("data-src") ||
+        $item.find("img").first().attr("data-original") ||
+        "";
+    }
     if (vodPic && !vodPic.startsWith("http")) vodPic = baseUrl + vodPic;
-    const vodRemarks = $item.find(".module-item-text").text().trim();
+    const vodRemarks =
+      $item.find(".module-item-text").text().trim() ||
+      $item.find(".module-item-note").text().trim() ||
+      $item.find(".module-poster-item-note").text().trim() ||
+      $item.find(".video-serial").text().trim() ||
+      "";
     const vodYear = $item.find(".module-item-caption span").first().text().trim();
 
     if (href && vodName) {
@@ -710,8 +895,24 @@ async function fetchSiteDetail(site, videoId) {
   const { response, baseUrl } = await requestWithFailover(site.domains, videoId);
   const $ = cheerio.load(response.body);
 
-  let vodName = $(".page-title").text().trim() || "";
-  let vodPic = $(".mobile-play .lazyload").attr("data-src") || "";
+  let vodName =
+    $("h1").first().text().replace(/\s+/g, " ").trim() ||
+    $(".page-title").text().replace(/\s+/g, " ").trim() ||
+    $(".video-info-header h1").first().text().replace(/\s+/g, " ").trim() ||
+    $(".module-info-heading h1").first().text().replace(/\s+/g, " ").trim() ||
+    "";
+  let vodPic =
+    $(".mobile-play .lazyload").attr("data-src") ||
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+      .first()
+      .attr("data-src") ||
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+      .first()
+      .attr("data-original") ||
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+      .first()
+      .attr("src") ||
+    "";
   if (vodPic && !vodPic.startsWith("http")) vodPic = baseUrl + vodPic;
 
   let vodYear = "";
@@ -725,13 +926,25 @@ async function fetchSiteDetail(site, videoId) {
     if (key.includes("剧情")) vodContent = $(item).next().find("p").text().trim();
     else if (key.includes("导演")) vodDirector = value;
     else if (key.includes("主演")) vodActor = value;
+    else if (key.includes("年代") || key.includes("年份") || key.includes("上映")) {
+      const yearText = $(item).next().text().trim() || value;
+      const m = yearText.match(/(19|20)\d{2}/);
+      if (m) vodYear = m[0];
+    }
   });
 
-  const panUrls = [];
-  $(site.detailPanSelector).each((_, p) => {
-    const url = $(p).text().trim();
-    if (url && url.startsWith("http")) panUrls.push(url);
-  });
+  if (!vodContent) {
+    vodContent = (
+      $(".vod_content,.module-info-introduction,.video-info-content,.module-info-main .module-info-item-content")
+        .last()
+        .text() || ""
+    )
+      .replace(/收起|展开全部|内详/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  const panUrls = extractPanUrlsFromDetail($, site);
 
   await OmniBox.log("info", `[detail] site=${site.name}, panUrls=${panUrls.length}`);
   return { vodName, vodPic, vodYear, vodDirector, vodActor, vodContent, panUrls };
@@ -980,14 +1193,14 @@ async function handleSiteDetail(vodId, drives, context) {
 }
 
 function detectDriveKey(panUrl) {
-  const url = String(panUrl || "");
+  const url = String(panUrl || "").toLowerCase();
   if (url.includes("pan.baidu.com")) return "baidu";
   if (url.includes("quark.cn")) return "quark";
-  if (url.includes("115.com")) return "a115";
+  if (url.includes("115.com") || url.includes("115cdn.com") || url.includes("anxia.com")) return "a115";
   if (url.includes("123pan.com")) return "a123";
   if (url.includes("189.cn")) return "a189";
   if (url.includes("139.com")) return "a139";
-  if (url.includes("aliyundrive.com")) return "ali";
+  if (url.includes("aliyundrive.com") || url.includes("alipan.com")) return "ali";
   if (url.includes("xunlei.com")) return "xunlei";
   if (url.includes("uc.cn")) return "uc";
   return "other";
@@ -1252,7 +1465,7 @@ async function play(params, context) {
     const drives = context?.drives || [];
     await OmniBox.log("info", `[play] flag=${flag}, playId=${playId}`);
 
-    if (!playId) return { urls: [], flag, header: {}, danmaku: [] };
+    if (!playId) return { urls: [], header: {}, danmaku: [] };
 
     if (playId.startsWith("link://")) {
       const baseId = playId.split("?")[0];
@@ -1272,7 +1485,7 @@ async function play(params, context) {
     }
 
     const parts = playId.split("|");
-    if (parts.length < 2) return { urls: [], flag, header: {}, danmaku: [] };
+    if (parts.length < 2) return { urls: [], header: {}, danmaku: [] };
 
     const shareURL = parts[0];
     const fileId = parts[1];
@@ -1428,13 +1641,11 @@ async function play(params, context) {
     await OmniBox.log("info", `[play] urls=${urls.length}, danmaku=${finalDanmakuList.length}, scrape=${ENABLE_SCRAPE ? "on" : "off"}`);
     return {
       urls,
-      flag: shareURL,
       header: header,
       parse: 0,
-      danmaku: finalDanmakuList,
-    };
+      danmaku: finalDanmakuList};
   } catch (error) {
     await OmniBox.log("error", `[play] ${error.message}`);
-    return { urls: [], flag: params.flag || "", header: {}, danmaku: [] };
+    return { urls: [], header: {}, danmaku: [] };
   }
 }
