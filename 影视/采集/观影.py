@@ -1,525 +1,3889 @@
 # -*- coding: utf-8 -*-
-# //@name:观影爬虫V28详情页选集分发版
-# //@id:guanying_v28_dist
+# //@name:观影爬虫
+# //@id:guanying_adaptive
 # //@version:28
-# wab201技术研究用
-# alist-tvbox插件专用
-# 本文件为本地混淆分发加载器，不等同于加密，也不得公开提交到插件仓库。
-# 普通详情页首项为选集播放占位；用户点击具体分集后才进入单项播放。
-# 后台只预热parse；积极模式最多12个任务、6线程，起播复用parse缓存和短时play缓存。
-# 兼容审计标记：client-proxy _backend_endpoint("parse") _backend_endpoint("play") {"type": "client-proxy"}
-# 兼容审计标记：show_empty_magnet_group pan-background payload.get("season") payload.get("episode_limit")
-# 兼容审计标记：episode_payload["episode"] = episode target_episode=self._safe_int(payload.get("episode")) episode_map.get(target_episode)
-# 兼容审计标记：vodFlags 选集播放 selected=true status-id real-episode-selected=false
-# 已验证分发母版SHA256：7635DC810E9876E83C3A0DE8ADFDD47DEE376FED3D45872F75A5C9D7A84C1FFE
-import base64 as _b
-import zlib as _z
 
-_k = b'guanying-v28-selected-prompt-local-only-20260722'
-_p = (
-    'AFqwm0v-',
-    '*bxL(YM680Bl5*IWxzr#0Z?hNW0E)f>J4==x7;QAHjU*UjKM3YS7iK^pD{Vps=9_IDE3E)CVY4f;2<!yKwvcdwz@R7KlYtzuj#6R',
-    '|Mb$3Li5nPucOPu}0B*rt`TbtE&xSBr7PRNPSD#9$$U3cC)GOI{1RyiYbl#3@uf$fUG*5E}9nTWrgh8Tk&LWR-xcaXWnu-JGo{(!',
-    '}#x!nWR-~&O|W;Kei1)yZIsM=mw#W3-BOm2(8QpCa<!T!vR9IuJ4KA9L3Uj~W`$od_@dLhb0(-',
-    'LA3aoCKS)Ao|<@(HOm`nZ?6gUQiuPM<`X69-1e&GdU}viI|ZwZwk(cnKBA!mW+6b-',
-    'J!<@!^tNy6Hj4tE{Amu<mgi$@jPYs36d$N7jHX+wv{SyEAQh*6($f+tv55vWCy9--T$?Qk;?U>2o}GF%-',
-    'p8<*X<e&>LIz5D4KyBhV4a>By={wH=X}CDZ=QLA5WM0hC>pE=sNV;E09B<YZk5i48m6;OVAC8}H{ntD8zfJ&=Z2((YE>dNSX@$Hm',
-    'b2TpRh~`(4Zw3OO{6rtm3vcS_ILZvd32*!GPt7Q)k2ahIB%s)F(z4T4oIYa-',
-    '<rM^@9?>Cq7ti726bVycfZ`%XsC&$jNFF5aDtugdREQ(DU|s&!STRDx5NkEzP0RelcSjM&qG>?i!U;9~6rp4;)Sd;B|A+2JAFf)H',
-    '117mc203WLb$2F*+QaF50<^ryTE$>ZMsO}Ulc%G)0UivtYvB_T*MA`8RCkf^1ey#W`W)ux{4CRWa6F)+kk#)g&fr48+iw~n*l>`L',
-    '9*^Dq<epa6)W(>7GV+X_EkL9vU3w7+DHy*R$2WhK<V-i^p{=#6`5)T?cWw5MeVa|zF5!|1a{*cye%xsuGE(X^O&o-',
-    'bvGR<e|l?b}`LW>{JyqV1A!yX8xYO^)J?hP$<P5j#dV=I$@3qvzFZR-S+tiX%e*2vSjLkk-',
-    'K*2}?%V)7amSnKl|!4i}fE<HhYZvMid7LbU6iD%A{~C=#uW-MfyE3iA;ZlbMe0)xWHw>dXJ^KniH_wx@G(HwwWUwS8oyI=qRIr@~',
-    '1+@sOj_G7+#!h#}{VIddQ#!AJMvtX_7>Sgz?{0LOp&khQ<i4g684Tw1Q}D%8RB(-',
-    '|)w<zE@!aPgV6bh5>8N7vQj^Ej*un&tRU0){SVRn_aITm&zJH^f21sC(Nb5Fey&vBSWX2{ZJZi7t{`f`Bm5e7bGimEG1@`MMYzO!',
-    'A8A$KU7}Gz1;y#=17o0oK#M7j%vHgt}_P1Uw&9uX35|&R?Gl9En$54PsIIzs8#G{eVCkq}Bwvk@U00_S~o+!}y|AJMUYP4EGa-',
-    ';5t8KL8z_@9tVK$pOj@dSb@8Zhx0At`5Sy2BSd-TmooqA6(11y$t<jVVet3=BuG!ex#X2B>SuUHiTo*eR~FNZWgQLoAnN*$n%t`v',
-    'oz5=1FyehdG>+W@Y$f|zZEgz7<!~)P?xt$FCKg!8pj!5Ya!!PRrer(0pZ&5BoM8fFE-',
-    'r}9FWazytS!s*2<KTjE4b}P4ozNkjdMk$<1mqeSrMP|vzLykkU+a7;h`+4tFw?%R*{H`MeCk}l;w#m&s5u4=o0Qph8?N;=E0Uvbk',
-    '650E4X|Wlh2un?TdFkq&jcLadfU$l|*@WPEd0;#ojgDiwmCD<Q@>$-jU^w+N~HCimbbZV-',
-    'c?Oz?E@}?1ut2g@{lHkJG$BGT8<<n8NbgqS{yCrAAs+8Vz1v*1MRu>b(OGpOYgM*&>C{2K#WV4;6vz5|od_z3=Kv-',
-    '{M(a86J+?mIYDSUz~&gdN;k_R-',
-    '_YQjMWH<acvC)S{TU|7?<W`8ACLB*!xARO7}Ctx3}C$ZzfSe;I#aw5~`fC?zqpo879sj2tbtXn!}Kv`k39S@q<Oy&c@LH-Eu0(?s',
-    'C={2Aj3oI_O1s&RrPP+>_xTW!sa7g^P)Q_V+X-',
-    '*Ec#<wfBT3=_dslT$n{23wqLnv{055oXdc*Rf3>_z}Ol;lKUQmtB=#P>hd<*hM0Q)Md>nNg$=JeYxHB}FJb&vgmIpFY}Yx9mva}(',
-    'M4C*xjet>{@Y+Xmj#yE>ZF5SOlJJBvTr$d9)C!TX@R{Z{ZotDz%CC|~EXp4cRFf*nr`eH#Na&YvkOR;=ihR9Vl{Nl1-',
-    'srustrl@Fy*kp65!oc@9*sjohTx=WZT!QCgYc#}^lPmFg{cNZc4zF0Pseu5+-',
-    'B`$N3u128_*b>y`YtMVEFRIKJ3WZvPiiD!}@7N^tjxqa69;ao$C^W7Oy<D#1#ccyMyH9hYR^z&NGSE1xta~Z5@m~vwa-JdW~Jm88',
-    'DoC`{+0u8iAteo(hkJWm)2BSpdPsm7V~3Cv@=syeNcYhG-',
-    '}m;O8ci(3dHxLfWa$`8X%*5?jvDt6Q|#WQU35Y6?ANlB*a(PEL4ynOLZreH#>9cX_W5YfVZC4G!n-',
-    '&~jU{5ArsfDL1YCBZt0B|CF&iT6!aCWfw2b7|!tP;yy`L9>42MF*S%s*BUSKi#Nm?xNen1`Rf$3f$O}#^*2Fuy3{+)qE$XVmP4|Q',
-    'boOB8%fen}AcWhw>#!&BiGrXSBs+GjnAL~PKtY+1WJZaG@j-',
-    'BPgysK0FL75KJ7szs?gAO5{$pphMUb8@(heYr8`t_Z@1hl%<^G4^1aVam^(1&Uj0c5P;<fH+BCDXf1#mO6KX&m@@~qHHJxy+wVhu',
-    'lyiV0w_n;OQAhv^IDV~0(G7xL@}O5m`c<{e<)vX{UUU-aObII!jXiH>7Ry$|<9Aw19gjp$xkUN(f9>OQ(7RkF}yRs%l|K>%(_ahP',
-    'Uh*@OaMo&?>-Cn;12Ot3poFb^2{R7;;Ve~qPG$oU(^B`5JHbo2AO^}J{5=A?S0mw|sK6J^LH%!M?FHWtuMXR%YzEChf*a)LN-Uek',
-    'yeD^Q=W#M)drF1j%30!4S+1(u>8Vxuw3dn)fhLGy8N3`>}$nwEuONRE@K`jl1T7y<9*2)MMnJUVkng1DJT;+t`yzH$U2b}<Kw$?6',
-    'w{W6i$ZjAzA0(d!Ft5}gM9{%m#6puQTbOYad;ngz0hPadHl!i-',
-    '?!cuc=LNlee^&Fl;BNE9BWpLp9qD1kQ4tfb)A(8p#YYWu#q!zc%*TzboIhZ5Jr^MUiYd45c0Po5zbZ=l}n6cP>-',
-    '#%V9>Em2Ak`3hN+n4v^oKH0iu^s=`sC$hktUA%<`eEeo4zR7cr?8z*OrM)e|&Hx%_0rOkj&;<fVt%h<oIKnJ$Q&q#qy8Kvekaw8^',
-    '*yx%Gb0voW(1Qym2DZ-`NrwU2y>Ie?p#%&6;3NkO+r>Ni=frbt-',
-    'G|KA+GCmgix`%|Eh~~9r`n~rb=YnGO?pf?9}a|6njzBpoKVs`OMXxHGQYrp=0M2KQPt8B9t%~6hK*MEJujJJ--unqrg94|=cd_A+',
-    'Q4P^+P42oQX@3FS{Vz9HxPD<dR4SJ4q+E%<Ttp#R6v=Xo7$h#lXlE-B~_qy>Wb$6*}CEeDh{ZdfYCg!(fBU`ie-',
-    '8E8C;G;$MXO!tYnXMbJ~iM*DY5qqwMr@wT+p|7D<DtXY1D$7REDQ1Y&cHhh+RLU}*b#UgPH)Qz){wcr>GSu@aq!5eWC2QS`Au6zg',
-    'x9^F+}h_0Oh~vsPDmF5_LW<;k#Rh;O$i2=#d*X3z|+FXF0uFJ%ON-',
-    '9U+AgWJQtw|98IkNw6WDKB_8jHlwMKrM*XbaF=s8CXUchenQQg^LkY)<G1Wzq<sAk5;dHNazov=>pM8Fa-',
-    '`d3%Vi)4=Q#dPBRVIF9Us?M9eTE7Sfe$N8o#4YX|})_V5$KXe33~3oLgR!EZj*#5E3&cO!lQhtV?y@ELNz@@bfVyd(RD>vWzCZ1c',
-    '6kkj2>vLT8x>kmMR?7$sx;Bo~V`^6lPgA1<jwm-q%83>`HC0K7*=R0Jd$DDnI#VR&DG=TU9?DD89*>>VWM-',
-    '6bm~$9e@|dlXbq<1oBZ_S9>Dc127#um7;p0vLqYXZ;F>R#l$|fLH(z6=ifBlhgsTXIG#xK-sbe;_W}F=hqxNgev+WYr;%)1zU@2+',
-    '1am2mNI+wf%QaiQB|c|L0P&W&0ncyxJV59N4*HbhpqB3(S=L7#?42?@N<<TiNAw0%rh1&=9v7@00Tb?5;6<ACEWyl@k+_ik%rhe$',
-    'LSnB9mjDdlcY%XR#p74Y`OQ?XSlE%*%&JGbgA}<_YU6!Gc7>AtwGI)38;lK?JYd^E&v-',
-    '{IYM?{v^EWh*$Xq*7@8t=p4OG14Q%~GOh^)P<yyEjH(YAju(qd=(-',
-    'L>kt$jj@pkhwrKDthbc(b??7bJ#Ph8G(QvIDo_ed&@j3^YQd!e4AMf&PdA)8VW5!WM-DMV1KajuZr0h-',
-    '%@~xAl5u;y*9F!*0iXa8&akmf<c|G2BC$;_1Nuhmu$-',
-    'xOO}?p~s+nD#Wr1tcOMOI3*b325(_jS}ofDX<)Y)#&(d8kSwfC#wQ8&y$_w_Z$jds3bbV9v_2cRs@TdJ<nDb6w>LE|DRjP&t%Rud',
-    'Rpv%$H=;qeB4!0L3`-',
-    '|z(<Sf0LTT+{adBH|EG8F6{)Nec(dR6``3==kd2D=_L%>2+eA3gbsGZb2+vT8$;fG31`dQQUaxs<vdK)QTP%Wt$KC!n#a$ZA#3RX',
-    'zbtH{yoW|=ffwnu|lh%KwYsxFiw%D>$|UeDkXu>pS2PXsj1yO_FzHHf&SnKZ;$pavH@)6p0A4r+$uT&hFE|2Zhp<VZGD;)XnOrU$',
-    'Hl_i`C*1-',
-    '@X1<Eun(YNGe`8_qLlPQb?{U6FYMd$6FSHvIOfA;{3UFpX~+SVVuDEJ{x@5QIuij7UjNez?KRs`H&1$=0eW)jc0|j1(iW=6st>I9',
-    'apybEI2Oi6`PPzUPS(uCG!Bqemcjuw#S0LTQ;%0DMSPHBAyo&&$PjJ^QZuA}0gpoT*Ej*MaH1PNUyEJm-_a*r5HLq7Q{q7#rV(5C',
-    'e-E{)aBOf4Wj*RWvS=qt8v5CYo^x(pUY#DZOPjzry$nPO%=hlM)6E4O1fNiG5j9oplZgD%h!7%|;;EyOYQu%-',
-    'zFt2dQC!!dR8p;)3+|`j;%gnOzL~=v7sC?4!AsU6V>6g@7CF`hD$kw2hgz)aU;~3+sDrC0$RauZ6tQuS?blTFyVyF5;X$G^W2xAg',
-    '*q<poISLER+9<Go7Z@%CBv|q3^qYV0|)FxV4!b>_c6y4tulDW)X`yTGaZT+fh$Zno2Z}i!qMnR%L}O<`_zP%^~W05GFv*{+&xxV-',
-    'l77V9=dHt*+=$Fh@XT=@wqe^8;ee=DV+R9nEOVCIbA!R99cL%{s4PC%6%6Oa3p1=)f;yaaoS^9({ccJkB}U_rEg{;SO^BetzsA4X',
-    'UNv6zoSwq-',
-    'qaC=3L5E`K@a&9NS#IR~`S_<8Nx1cvINsg;LHU116|v!bffvi!MrMBYJPaRz#QqczXm0j5rvxGD3kL;K{}7Gvhd?L=0rN--Puz!w',
-    '=J^lTAEBEHoT&KP^{Ec}N9nmQiYi9C*StsoPGNOkE;PO%KqKPzoGdL?N1<MYH;AoCS5M+_U<&p40taf`@C^noVOIry{|&1z4~auc',
-    '=cIX4c00B&CPKqgkFiu)$Znc)kF$AO8d7E`;_}V7R2#!0?!s+0Kx;E$Ud^sLX+hqQMSG-',
-    '<AXd9d9?~uff625(!k<jT>%ar3l=l!^7+fZg(IiUv6C|_Z&XPAO{YjCr43se}U)>&;{uY5f9{;;vCd=E+_`NkTH;l%kGt37yUsYf',
-    'Hn2zJpY?5r9I>&-hDo)AT7X~x3rLCjKg5Wtpf&mH%BlKK<GcVTehCS0QZ@MxnE3RhNzeVtq44a^%bn-',
-    '`ky%I`}(j>4nd_o!sCgx5qp+Un0O<8za0KhhczNXPtr61aWby4qJO|WGrapCm~4eMgFLh<bNuhWRxlLzuM3_t6vN>8k1BHu#UNdN',
-    'p+;b7w>QC;p#Y{d=XBB9H<a}Og(_)A%dia3ti%Nm#%<+7E5^iYwOZrqF8wG(9<&6%B@S`AH?tqDjfQl_2VcW*Sh?r1QimZ$pB%8(',
-    'r3QEat9X{~NZ_=Tx_Jo}ziU^-Oer?PAz7oBXw9H&+C&R7PkWHok1Xpj<AU=h8&W-',
-    'LZ*^q=BtUO{#Lng4frV`7lvF5wg(x&>TI^Zv+J@;U%w&{OS`XXYM`=CVR~|A3HCf+d4iDJzv+c|kztWuV7!$dKH8I~@_UOjZ^@+y',
-    '0L*6abwGtmdyvHB-w!LzhwG#N`Rr2N8`)itFfV2Pv6cDFA!q!;LIx@~w!INoPRkjQQh23du^!%moZUkkj!9um8kc>4f;M-',
-    'YqG_s(1D0%%KF}5t_`pU+qWcymy|8e-6vb6`rem`!r<v*qZY0o*7^8+3T<ko;Yn=F}~V=c%102j?D-',
-    'OY*<^WsuH@0B4#S=3@jFyi4(f(!lcs!`)^;?iKLmberO7G}V5&TYmFq5u6@Trn<U!^`KE0#(181HX7`vuaRX7~v1M5AAP&yY}D5C',
-    'p^A&pw&h3o9}-P+@C<xxyG@yftkf1=?1#xtrvRsBBH@TI>$nhhw_5dZaPs<m(8(0Yh4-qxf*(Jjd|X8_8k>j-',
-    't{J+PAzBtceKbX6r@Qrpb8OqH$-a90^0Wuu3UK*MxA2mH9p`cQc7LsC@I%jhgiB&{RZPAzKcRwy=4_w$CO@^-',
-    '<f%(!hhtdJMCg2t8mp32x50$|6&_->-TkwIR8AiY1~$SMW*Z@C3NsX_|AslZmiI-p6-$B?4Bj@giP+*INeC*GUbr-kayVes-',
-    '7}WS%e(rrPG0`2o;L4_B9}Uhg!e|cXGapPP_aCyHedm313t2M|uuv7Oz-',
-    '*(+sR1U=Xi5*4)c)_)Yi+`R#U5w!VigNKP*?Fk<=%VPN3^Lh-',
-    'z0^P273VM<!pkeeOuK9~hNNUv8J$b3Gt^BzGxryuy=6#CD_n6J<uRSXdcp-',
-    '=yrEn*09Jjdgu;qJ?n@;ga901Pr_CRarhj4b!dypLX1SD_q0-',
-    'k%5OI0hN%1x;AAIQJSHTzN}Qa&5zTedpf3#%9!PJm;)EgO7^?qY+&ml{O^evY;z>l$nd~f&D7qlZ|(*bxaXT3Q5J~|L9{0fz5Q70',
-    'iaC~A=tkAI(PzrwmMic=n)fQ2XYt|W26BHO7FC_qGWuA@M&YO=1_ZR-tc|9eKC(Jd@zs2&9&$^W9Ubm=(~}$pvtgJtk4h6@fp{H<',
-    '}-%TRYT0ikbM&0>g@slKO13@;!J3)`4)Mf*30bsdQkypxD=D33aZhaZ2PDP>cNsEg_)Hm+{?>diin@h5{47g-h{<ZQ;MDk8k-',
-    '@;7GCBi0jnj(DN{pw6ZJ|Be)46kzZAgc!~UKxRMB-Qb$QzSl4RbG{5@$8@SC_n_7^42J{R!a;gm&NlmgOCpoG2Aozs!UsYmjBZ16',
-    '*US8(Jk`EJ$iN(auc9hIjP7B{;N#lLc&#F*2cpPC9QWh<LL&^mk&S2TI=clMGgUI(1_XG<IbJRigeq$4p0T8fCk#Z5Y)WQFeL&3_',
-    'K1TP)G{1m03J?%5MDPGvf)?!b=Yxy|)XL3)T7#M#TKpB6Xq36hqR1)C3?hQ#z~kVQibQ@AfGi<pjskn;X{WN`1L|MLE^#^a)gUG6',
-    '!?#Jya|73pfa9bYweT;I6prjRA<M#wnhQ2R(Flr(s=vgDIKw%_ho6Pi`lN++-9k2j|rE5d4slQbxOJhvGwio$Uh0-',
-    'aGRom<!m&2!ybkp<Xcy8YBPUQIPkQel}e8<D*G@5C`oPr1^@qryqd9eiy@dgk|=+)Hz%SGhR+ZYHSwC0Hw9btDiAuQf!JS2>E?*u',
-    'Po!T+#Ii;gR4vi&AfY?p|3%RhnmG&pbTw&Mz$4yM>4~wrnPsTGXSk*lV21JJr-PIRJmw6^R;WvPUDfUSY-',
-    '(_(5j_APOR71kTZ^aR)o<rjv0G{GX6R*UT!{26SR1F?R_f@-',
-    'M6BT>Jpjg7u8}EoG|=&SXR1twh#?xQy6k`62w@?|sc_WKrSpRys$-',
-    'O{P*`{{+W^KWdquShR7Eq13J)R6F36D3b`_D#Wxt?+wxLha1w*F!Q2#=-',
-    'vVt1Q<_g__MAj1sw5ty^CW)9A0gVZ(~8p_~LbkR@O=0<7JPiO4phHo<;yPWq@RU#V)`2{4)3yH2;~`)znlyJm*?`8tt;{W!n!g81',
-    '@PHnp25{Z~v}>IWDkFnL#f;zZAv%R1fY5j=F6x2OqGL?Te)XQs5;55{u&EFbCU>ad=iofXC`nVp2c3H2P@Tay<~{i<cN&ubkPi?3',
-    'gc#Wb}owdLJiol#ZtkD5<4^Z~qSK!UjrOw@y>#_YNP=YqF^n<j@X{wK;FIShM4%5+k(OUokdpwnRxCjie%to+C|yt?Cttj3e00Nf',
-    '&)9_ipp&BcT_~T;M&)bz*xeg9wb|fS5vJR7dx(A+rw&n~6S}#NmI7xOq~b=f5`)yi6-',
-    '%Do%XMsWX9qcU4ci2IN3VfM3i%56l@1UNrlyp12J;S!!asrNpFow_$4nk?W5vc-',
-    ';#?4>*xTn=H+p(u_UOQljrL21%GqHT?s&`B{tF0YX%h8F%q3^)!aBO+q{GmR~C}7ie39q}rbQ>v6Ji^)!hm#$d?=LG0#Qw#G9r-',
-    'vCN?$E1}*LknZu;o46Y2pY7M_mA}A&NZoclLm@C_~Oo@C@ud;=Mw^bdX~8&HSr5dsQ}l))s?iLW9V<Gij4D=#JWf2wOi<ZU-yszH',
-    '2lNE$rr@7_|g&-',
-    'rqp#3643s;MfXCg9eS`_IKt7x(h4$pc9zzzsVFS<9>tItq_#Wjdvk4I8ub1RM7b{A^HR2?b1wRR8yLhXD|hD1YT<p3R3)7sb`iRY',
-    'vxeY{q<H=rsL6*EB$53WlW$RO+eFZX<vg>FpH1Z)BVy;)7oTr%a=@;KHUnZr*zKr^HAQ=iHS{Xk{K&TgyvW#xi>|Fia>*s}P8B$O',
-    'YA|Gf;5YNSIjLX#UH!)aG|+j2+J!gN8jm9qA$~7#e292OzLO=w-@A)-',
-    '9L(CpNI66yE(c4)R3cN$J7qJfJM)Typ(|FpovG!`D=$IAa1qDQ0Av)dW1XXsL1Z!(#jDe{_Sw{}fat4G?+>G&jU`vDbgOvh?^eg^',
-    'Ke%|6HTT!CE6s_N|CVpe-IlHE!jhi2O~zxXy0DXhsOHlYGP{SecJl6VV7~1#iwfqk+6~y3=mb|!vRth*_=5#JlBw@Ky^+&YC-qYY',
-    '#opX`PlCnt(AwUV+5&;v+B011wP+;%1^+Jw^91vM!n5Z|M8{5=xg1uHx0Mcd)gVn=r97{n9F^u1d$9@}ALM_#U4eQR0eJQ$0GqZX',
-    'elu>uViatWU*o9~vd43|AH<33-',
-    'GIRFTAvKhxje{$hX#>cPP&U@n;wJOI+lj4*c<K(R+})qxDnXE;;*m3b9o{nRFQb5$jl+Pk+t4NF&L)9;E3U(`8J^~ekj(?0IPApZ',
-    'g_vGSkc16_vC@xr0CU{WcZ8PpSz0cuS_l#d~a6iU(J-',
-    'a*!+s`^F5qi854pTkel9ch>`?YSx?Z~GTx3oOlvJGs;ix=mnJYy`;qGor-',
-    '+nqP?Qf!$gSZO``HrzpR_L9V@pF#pJfkMn7D0R4j*7QUDR_n5P{rxZaVssu?$dH%Za8jOuM}$oEsWy;Hf+Xe}9>nzV{Bd6BVE_0d',
-    '$?6(p4G)wsy!JWaUx=s>(P&VOg7~pc|j$e&?RvMv(RGh9r*lc^)HuXr~$fCXl?Y+V6MwiCAGR)Il!YrkiBFJQM^(?jaN3PBAZFfZ',
-    'Rt6X?+14cRx5;Xdlyw&W-',
-    '{+`|a0v6+?+$ACIQ~A&;BaiI<{YSv|%GG|6N!5OhiO6V=)Rx*6{#M?PvY6eDK9QK6^o*y;Qq3+*^OvsU*o_nNZT2IO$oyYg#Yqu3',
-    '2KfI0@*_WLX%7j&aG74uFBO5oEq)%%*mYmcq!ef{lT@V~BDq2%mgWN6SeOK-non*HX0*$|oUgI%z&<vZCO|G<KD@55ybd*w2`Zz;',
-    '_>MaOx@6Y3bu+TU2vkX?;BYQzAj^*B`qc559UsA8$&aK9VBVIy`3xc<^u6*Ek_C-RN+bd!;CnKm)VB`tb)87U|o2ctxdgI||nUaR',
-    'igB6sB@xov6I=(Y-QKX`JN>*g*_!PNV=v)w$jnRPlMhHz@+>@{q)?LriJwb6WNrFLckzK7yDM-i-QOeozFM}|cP7HjAo4O=kd3aa',
-    '3q(5cSSH85uy0{VLqKyv0GV5yDJL8>1Yw9~m_<d~Pgf6h}CRpTd3=|cfQ%2MrXXSZ6y{lR<ARbNw`d$sAHi92O!vXXA_TXG)RDQn',
-    'd6+M=8qB>C@Rf)4f^<8&8R*Ea5Ay%!%Uk_O5I(c<rDdw<lpFVKg3o<<p~?{B^(Bo<1B12FreN%K<F73k53TXG&rbb3H4mU`K7$pW',
-    'K{A*o~^`FI!8kI6~{fSMIl|BrS)C|)z*f+fT#*2)B9*`Eb8qTmXL9(6{vmA4?IfyZL~2k*Td1Lh(%!rL<y+3hPHi_opD5HJ~O!E{',
-    'xzk#%Hcs0P#x8NkxnBT9ne#GanRY~gk%q!F25Wcat&99MOI4W3=Xwu$rTj(Cn%q;-',
-    '@0I$KVUXU3faA6I5MH20zSMY=EuA~qV~g_ro&Un(@%5C@Q9E@jBhto?*@{2BU$Ru=%_Rvb2Bj^xoljN_BWDbX6P^Z5+o)Qiy3a-',
-    '6`PkRHG;)WS{csoy%p`yur(H04>jv#_{JRkSJ$q(FFMuFl~=uj_y2%qg3HGa^(^-',
-    'Dl+EDZM}axha01V`0vVIWbn>z{uIy2rxrE2bAPS2g7prrCj%peu8D_u(Id!K!FzHm?SMZ&=LQ;VK3V#2?=WSv14s+1+8Plr7iPX>',
-    'Q|^h{be;DTH+8Te2^4^!Xx&p(cJzon$Xtmw#rH0jR9T9j!R&Fm=i2zMi7vp)oo%cEvgeV1$!z$9&mDyfQ3)KdV|>tJ@(I!ieMgSJ',
-    '48w2eV(?=)IpiPo-`8-',
-    'Y*=(gnZOd47PJacktcEsByXABBk~aj^D^|EQ;asbm8SY4?guVdnILSR*!B`SVlt8q%9Cwm)`nKx(#=bfw!?=FsEV8LO2$q3$3$Zb',
-    'c6+=(c!CSNfqZqF8ynT_vlcj3;?k!VEuQ-IOeRAYY__RO%FYJz)TP8&&XY-qK{KY*(le>D7~Cg<lhX}nA9h5N9Jeoz+Rru3K!+O!',
-    '=cbm6Pwx=a-^~*+gh22$kL>*Is%bPt=V5nikLER2&gQ|7!I|*}VXGq-71(qLd5h7|Jnr%J*XbDsv4cXrhh}8WdiL@kn2-',
-    '9BH>3fDXnT315Ni=F5g|o+k>S`MFHCQ!Ba$j!OCJzOHO+@61YUgnjYPiZ4C!<A>dC&WQ4LdZ*&Hb5cgVR|sup2>8W+)!xnpc+WO!',
-    'gO_#0>|;iP1L3zn)MnIU|3eMs3dI+I`u50Fi1G8vAu@kH<(H25mTN7`77s^A#+c(WWPYWc3g#yks_6Ju<0;A<=+JhTA>=~q7}{W}',
-    'N|dNju&(Pz0weURMfgEJmDOjel}YS@@S9jK^=4RUoKj=_S;T?d$bNnsUya|CrAib-Wa9C3CwM0Qr|c0k}!zDAa09$vAspef==fDI',
-    'N|ZLpKEKrC9Qi#+~UnnsU}@JwZ>HPwjf$<N8q`nX=w<dtsE(8&+r>T$~)JNXDFpSRkEuNfJ{hOfrL`h%WaaQPX7zu5X{`-',
-    '!#Dm&ze!ribPl-x|)Vz&mkxaKWKw%I0gN)bb#KeH{UU-Fx?3tF6!gI7=N3yP~RPSlQ5O+nNl;v**!?2LYjsmmw;y44Ox?{-',
-    'AR)Cft~ON=4T|l<bk(<@OrpA^6lGToy|F-',
-    '|6GUV&o;Z^{`W<wZLq}H_f?+=#%h3Sg7mBXBw(`{p}^3Hfnecli>ev&$0f3CU`&C&XPWe@?bMArCG)bN>zbgc2wLRSiVJd@MW!h?',
-    '!|;|in-=YO-dJq)wZX5*;o)HARzN3lSM`u_~30x1d@6|meiB<#yQQbs64Wgk&l{cnz_hm3H+}kcSsaF>>iY24qRFGYCA#9(e;yZL',
-    '_%9mNbo0>y8o131?HzVMdt3xc%xiKSj2}=J1fvy$TwJF)-',
-    'VhnDYQG&SXK!SI#><49X2xT2ok0bgc~BMW#nSDtQGAPGTHl~oqky1#VLw?!;1Ou41U;o-',
-    ')I4UrG0e^ZCom4FXJ?uWh)AS#DC~?Vb}71piRF~u+>MhP^-',
-    '2BU%8;VWgFS0E+pTWlv~q~TpIyhvyLwrMzGxwK}%VuAb$#QSH>jIXkv;d>`?m=#b2>P%o;P^M3b3CT{WOMRd+TqwqfaI@9#^nJHI',
-    '9ICY+!k%03~@lg|xuwLq%8Mn~(~943S`?;`7tp^iDw(5v%t2u|cCrku(|en!C#!5|xDUsz*Bd+9a%;@*1vLN8c=Ipfe85uev?Qbp',
-    'fn9%NXOPfy$wzm?5Wlfw1Cnd0xC(VVin=7WOXn|hvVz~%WxSZ&gWVR@ES?NuRd<gm%Ld`e~&e8~y5#2i%*<Fjw@b^9C2a|qsj7Q#',
-    '9&I|Auuy^B5p@`819`;*Ag_(xC$di^4w-D{VxLT6A_gE-',
-    ';OV<c@yQ;$}z@!hfgGa@u4J*jo0#n@5}V6Qi;dg8k07h%L|`o|x3L^8GXjok)DVBWhG_=!r!)hjq^ajFfPJRj%Wz&VRbN|sga?cm',
-    'ojmj-GVguZ{lC2dpiBWHL)DWuX$eo`^pA&{X)<b6OBY*Y+1ou@QyxEpF|sc8jp*egSzsDl)dxRGF>uVFaGow(Unz10)OWL9-',
-    'T48^njp)&46%T&;`BJfUtnB+$}0^uTn)dX2N6pv{oq<syW+{-TYeh2@h5!bVtX$VFcot$Y#>-',
-    'Q*_y0*I+iBtba6#{x17TIVWipvA&T$8tY3;A^TkR@c{ZsQ4|g%XrvwqLbA$9X9qD5S|#Bv+&LP-DF{LQGN}lyypjVl%AF%B{tZmK',
-    'Y?hDt<0icvW!(elM}&qH+b<PVBy6*CmYpdJYW`zjN`LU#}M<UZE!QkPMva>pYqCCSM;i%Uc)LAn3H+Fqa{_Ejj-',
-    '&e94|k3Mybq^^nU()QJ9W#l@l^ZRV1OVvG5sgQW?wVb$<>C+1yr8ZZEbl*!n+SoLFjgEKjAkJR?b_;AS*L%7!G)_`Z4uO7}_EIRa',
-    '01j1<Re=Ifj3556psTTPbu-^iJ$eG_n-TsbKp1=SUO3byXX*%k9@#gG!A*|Gh)Ar-F^Pf{W!f~-',
-    '#?3?6D2o0hFdrEp{F=wWwjOnq-',
-    '^(Ql9z<d>(D|XuqN*B$vu81hlJ@&`_tcfga&Q7?y&}yBYK83`c*wjM<qx+Q8R@|)hAz8kU#ti9wiqlg0@uh5xf-',
-    '*4Kq3r!D9$sxO7ZVm3mdiK(rW0YXcnv61#vnp<FCa@msNX6_cK|gmP-yQz@}iM{6FAUBY_Ab*v)@3I9BLDAzln1FU<)Y;<#-',
-    'f#;d@}nV1L}CwR6+(uNAF;4&gJ2v33szsCWdsz=g};a}wvMecGfBxhDaH{hD=0#)<2iDB4@_=u=tiB|IAQ(|jBXus0;fq%xqMn~~',
-    'xlC7l;3$v0ey!69{sw|KpT%zMpU&n__g?jpL(*u89v6k+P3jJnfb1>6h3&01vAL?5oRg9!aVDyj_^O(*;Oi7)NiblHifuRs_H3Hn',
-    '^_6$gV3GpL|o2;axj&IegrR7M)6ec!3YbQ)e+eabNr&9wr!v4U0IXZC|zyCAmmw9mvRiT{r;lCO4K7Bu?Sg!<*Vd}!1syZ2y4xb-',
-    'ktn)V;cviB4s<6h0zuakMZ78A9YYKAwW*5WpAhq<15$lrBeOVNAtq&_rQBc9tUVJ<5M0FUv$!$X~f4oL|7cSmWbD=Gaq9I4K#&=W',
-    'G(6aXKtByK_cO~W5l*9j1lX=uYzk}XYgT{4>@kXwR9?%~~=N5%OSopXuhZ`PbOVG-zL@7k(zZ<p#AaJ%OD0uSLLeBOIN@w6?dePC',
-    'l`jN&GJj-y#=-',
-    'uP9Ahq%q^$Y39buDOWLJ%OQ=ItO=zZy1e~z&3{$a$bYiCpdj_^?e4~ATlG81z!W%MW*dzx(Fz&sqSu{E}VcJ)`8lfn8@F$ln}&e1',
-    'XhCaveE^{-@jFXaGb&C!rGu+QTwQs=){dhX&*LII0b3#&V1)kSPCMcbaK80^Njg-08TT4=68<(G-m2>z*A#8-',
-    'qF>vbY)x&pt|!Y@rFVUVU>7>kOe`!9~2rO5eF}m^nAVr-?vfr^)@AhAznOU?TD&79R}gdZCBXHv{_7-jUDD#3h-',
-    '+;Loq7uP%89A_Q&6>oZ+|^!&wK0Dbp5gM9*wS5WvuYuft^}f-&LUd@Xe&RJP|BtG*Q@RybwO<gTq-',
-    '=i9XP9>j>smIYuBlu?Qdj@yJq%i1P_GmRmC_g}Ye4IWOQ?TFn=HO!l&dqbJ#U;g&92)^w|+2<d<D@z)QV8WGp(O}sm+;uEmz!qAy',
-    ';BbL$981SYj(4z*vdCPZGJL190<2{u&-',
-    'kLHe1`*ukKGJErd^SxEg<K<Ph{<y!?+lf<|J=US0~K_QbMvjf(bWAdvUPsRKDWBmI8ay@=hj35wAA|<3=`|fzxI0YhS1Z`4i)uid',
-    '2t=NIx0!YPvEmjWTvrwASm2!4n$`ev-',
-    '5!LOJUd#kk{Lw(()54IYE@BcB2b&!Ad+V?o*R%X6jFCWAw=7m2Ha<e0=q)1S&UP4wDeDhJLqpJY+^&H3GddX0-',
-    'h2zZ}68{mDdzGL003h7~kU;Qzm8j;Jn)Y|J}<cYYw^>86HAHFSQ!iM|bz#G6;;pjFS9*X3Zwh==XIQf(0wMyd30~EKY-',
-    '1j|OhZ*C`m0`Y|b?4##{lDkmS9pmeP`vm%8noE^`xc^gkBG_pl4{-cnPFy8laI!`x-*82*h<~Ux<N7WUy5!-',
-    'Wyavly!J0((dEblN8qc>S?FSAJo<ruJqcp4u@u!IAG$yN8v6Y`;xy3$L2&bBivE#HLt^_aj>TEWx#3-',
-    'I=F)_eJV8&{HuFE>LtsmaI90k#M{|a$Z%0{rfD?_ax|&fP7K6ZWgAs({F4@xTFG-KVm5wOXh8eV9D@m%3zhNJeyT<xf8GYDtcbK7',
-    'KV>Wu~6*<(6yys1Uko~Gdv>qGWBjvWjrtG#sc8j@fK53zW5dAcyStLk4Y$>vYL;s85A~kINH<PS)t;KNEd*}VHh{4eHjT4BE;m3;',
-    '`9t}+4W|=&-+mI4yL>WPeb{^Gt`RjmBYUAK~Uce$V?#GC<z`EV^)D)^!G^z5&PvR+hiU;fTFXuow{psd0SY6S|wf!+*e5xoCvMk-',
-    'mz>4_ITaJ+}H_vMP4z%uNdnu`rV?)IRfDAawTnv=fwMy@bs5rEboa(XhTIozi6;`pO`vtn%vfeFMNjPbX`n+Q}i^aZtGJga@&<hm',
-    '@DWqWCOZUJzST3S+)@gd3x9}E<z1O0Q>1Jlb(cbqXu&C9n(8DXdolFmTv)78_9a=!!P8zFqx)JiGy=486ph(oy$O&}7pMF&2Q~9c',
-    '#Cf+1#5JoLn#EP@CXOM6XI;7Ss{96I`s=!>jJ#vAS1Dv6qBNJ99`44XHjeZ^g2k*o({{LT0V5Y+B2<8b<5o*biamqZ#4p8lZtZ0j',
-    'dh%1#3tk{iT?L7&qpa4*1@y=W3>pGe|gZL2nLcRu07{#Ej1>Ql{VJF|vs$pe9q2DAWXIYVSQdAAevsA7Rr;PYHpr3vu1@e>@^5I*',
-    'd`Su<L9tRlVqaUfr^wAD1(>1lL^k>5Tc>Uk|WAEYd>8MXs>Q#?*4^iY>Np@MvgxULF^{mj{To+X!09HG*A2PSoC#tjl)a$JS^!q)',
-    '2=$*}=_x@Oz+&;fmlUj}_QOJ;ntAZBLv=NkAE;V^6xHDQ{ajlY&8gU$1YdD2HDt^MT=XIemDpWTlOULw0fq=%dG=kl7^<_KzHzT0',
-    'jQJ<LjKAvM~x|53)@#u4jy{6v&CA}Z{VU;Q;IyDX~^_T@ugT`msSkZ9{xDFXWS<TS*?51e~V+Xav1$Mv36UtO_1?uz&&W&u`Li*M',
-    'a4h(QYR4%079M=X>%j&85-^<#c44R(;mb7s@(wjw=kc8=q7*A$}pELRe&@a=JP<Fwj-QwB;@pcFV_oN|!hk~w4MM{fMX79)q(N8D',
-    'APmi%h?)^|q9Kx!G4@ZS)2JXh34xAc@rq=+>2pE>Ln}|^}?Q|0A6=c|+ig*fAMszX498eSn#z!~7oWLg;CU^h1G8ErW9vlUGu+f_',
-    'D@e4U1h?W^#t07_^>da?-',
-    'K6QRaVppRjS!QLQ5{$US3+(e`$S6+pp8z;3B~cGTAjuMB%x`t;Dx5bK!<?^LYH)PHaK@_it80^rR2=m+rCSGrL=MR2QiC9hby<vj',
-    'w)!3yiLV@w)>5IELy^lTafrM(6^onOkVBH_$62=nrY@MUESjf!G6qz7@P;%scqIF8EKg{VAd1ocup&GQ+%-',
-    '?l*)P$Lv2vW)ACCGUi5idAo7@IcS8la3L{fhUxnhd`f{6;L5dPgSA8jBxp79Vn&759X!4S{St=G82e-',
-    '@zMYs>FL!kKOOu!}B8nj5J^6Wf${@kuTu944D$fG@549C|_TvK|mk>3JV&j*T~uVzAMb?ARy7g+-',
-    '`Zck<s<Y(i@A_Gp{MmDmS03xfG4DMcC1ZiCs|58z!)_#q0pQPHQRp8IvgU0VmI9F4&=iX0*ak0xjTr;RqZFxzkQiE?b&R_-Wx+tU',
-    'c1s4cac7z8TIbj7@HZ;{67@@(PUD=#rizPucQFfzYxJVs4+825Pk)Q{8z>wF{M1y0hy9inBED<ZyWwZ2H8Q+v!XWC<z-',
-    'Jv1TgCow>3ib8%zIg$l4G6QkddZpD^-DiPrEYN9noPrTg%WU9DVc7*C4PVB}m5EZGtnTmJSYo?8g0~-',
-    '^I^I#iL2cdOG*EuaLaUG+tx_Fmfzk4Nf-Pov3asA|C&Ch0Jo}g>CyQmvM-',
-    '!y@7YQZ4?Y98eYGgLU<Kf6aP69p%ecbDo+rM|K_#Ad!TpA=*q0GB)<2Mq2TeOb_lo^nG6jAlglq%z6r4hx&8fE#$&EgTuG-',
-    '(1Ga7~6@G~?oVl`xJYl%;gW(IT5|!qF^M<5L!XI+apbR&WyzBR%+{<31{ofZIS(CcT(<^1w%Y0Xh@CtW<MmMkg-',
-    '3a?gJL0a%;Ha{QTpvI~V1I|6r$Df~KoLqT$Mmq(3~F+>vbg*k~b34o8Q<7V4;kwhoUUQy$@E@5ak_+xL`P0^?^V(|Hn+^k2~a)lC',
-    'EgVm`LobMZAid$yoE-|bGKAs2-Vov5XQ3ncE*68LR@1a5h;)GBsTH_?EGATJA?sKUCyGeCKC%%<a-',
-    'SKaz@!@T+XgWdz8Ls+EA4uY-{)ynD`+l?b{`hE#vHSygHX}ZvLbW4TmM$!)F##imrtzQ;)E8i%tB7#AIY@M(MFW-',
-    '4)7RywNkYXbn1H_Z>MY(|0I@r83KO#eR>gW)*}Mk%VzmCmax@uHpExpB66Tu%lm_y+lnv>ul~G6;pNvlbZl_|hBb?b{mqsXND?`D',
-    'Tpp9@dhaujO>;C29SIda1uyfedMwr$(2PE_43WT3vKz5{7BN0h#7DV3j-;0-',
-    'dE|KmkmbS~*P~K%O13kb#ywWY&vR_li{^^ftMX|#bXw<ij+hY)0b>Y+CfZ=0Zdx$A-',
-    '0tz>nZMZDBu$PR(1+MQ;#w@dRM?aoISlcU@EtKqcQpT2@ij*oHs+ItEtqK>PU^Pz4o4UwjNA0G~VJngS7!*ZZ=9rM1uQL<KGqQvt',
-    'nfOi_zWzT2nn|Z{Xq%?&yH+6Wz4(CFZC(&F<D5x?G6C;J_u7Z^F|a#9bv@~J3d;OIzLoB1Y^Nt$bN~_{-W=VA{Hi9k{-',
-    'k*VXtN~ZOY}K4h>hw2pTaqBC+^*5G%aXEr923oT*i28P|yb+Q;ouzceFgbLahSW|Cb=EWz>Bj#u(J3n2ISywg^}3#NB`nA5q3qy>',
-    'O-UW38c><4c)(uX%70=Shx?!e9@9p*d#r%UcC^-7N;o>2W2an;~T(spG;-',
-    '%&fB6(zv;_(MartAVZxg>`*RF_|na$MCMWHnsSvo07k!vh}NZgc^AM6HA-37C?v{#xsln1X@nw-wJ#V&5XEgZeA7t8Vdd2_ZEL+Z',
-    ';GA+%t^@J0MhTX6d%oT~Nn%QUBNt<EY5br+%6qZNWw=r(x!2mp(O$YzpT&FjL4Z}A6*{@h9EQG_R!V`C5HP^GCwuq>*cSms!srNZ',
-    'Dd)yWX(ex;dA2s_|FY?E-8<Mqjp)M0F$u;Ek~gH@V(a-kJ0E0$W}j<NHt*KXGyr>x!mXqJK+yL8pp6-',
-    'FDx`t!t}x1WylSN0*VGG<l^RY*jfPT&uuYEN$bVZxx0k#g2_KC3DG#@~+pAT`cxV|e;@mjmyv?!CfcwgHrasxHrdv?zDKj;Wf3wZ',
-    'rLQMwPE$}tl&e)x?0PQ+db`#(xb4*!1NT5+xLGHZE<sGQOP#cP%@AZkG28@C~v=oKf<4%Bl$iInsL{khSUDUX;{vv$kcE}ro@d|J',
-    '<3&ByJJ4tU6(w$~=$?TmI7R4P|1^!wn8AnizrYq*C6~>5rjPjRG45)yx)P->COd_99)C|SjHL@KtLOCWm1c5_ox}Y9hbER}b3v$-',
-    ';XPaNd;M_d^v(_Wj_wYXkRKq1D*-',
-    'ldMOI#h?SL1y${FFX7#Gji#ntJTYGn7`(v}rr6L>X#nlK3&9z|jgI8qOxkg&uE6xvsh|&(YeAfSaZ)dV5Zt%Gv!zn2ikD%F9;p+$',
-    '&w*4~>!UYLp6=MZ<@pNa?E=qAs)#zl$q+p~XS$(3@1@bouAkviRm952i!AFaIl|q<K2kKNDv#gvh%ZkAIxUX21?mQT|}0@Ma{4X&',
-    '~cPyfp)zi*NG((#Z?(B(S2%hnofW1#(j~0ajfs?6=TXL-',
-    '{|6$YqYhap=^;*fs}Q9;#um8dBa4UfsAN0M(eR`ljSk&gzHxPeAtXVz_%Ham3ZZjAdaGbpMB(eUXzlpebS(t`bU>L2=GUt%Z^5&g',
-    'pV)L*M-',
-    '>drvSNZL=yHzQRPz>|{?iCzaRs8Qq+1t0@~iNtF`MQi$pytTtAq=b@;zxTs)0<FloDDMtXL9p+TVh4rYvnX(0Bci!XX>vjyd|7KA',
-    'Cl$u^vg|g!V6JG@4A)O{pY{NQ<Lq|LLDc{fSf(>hI{-',
-    '+J09Rb2Eo6wn9FT~k<S&qNOxMKq4OBY?2jlTcFb22Cz@id@{(9ow+Nw#k~*}w-',
-    'H6FlseZC|paldpy}VZ*bI?KL^ivnyGVJ(_w|2}Ypkspn9&`Ejd!toi19_G9P)V7DMOauVzyG_Y7yMN6a>D(WCvVX0+^$!f{}OW;E',
-    '716~nxOP;+2e>udq^zcCHp5;KAF!)!_QoF*Q5A!jUxsT;L5`#h%kp~${4s);)Lmap&sG3z1P7c)_gv6djjHfpsw9_{jtPo152Pr0',
-    'Vc976R2lqMXU`etdJaKr6CX{!_Ec~yi<x|1@ch_!$ag1=66^*<Qck<AyFCIjnEeMTJ=7Tiram+Y>LfDz;BX|Yx4@$?Ztp|oSQjXX',
-    '(fF9Y(fR-ymf?yr(2m<m9i3Tf$cQI%H-F$uogIzGn8*_dHwbx%S!46hu=zinshMc-bV7sA10-',
-    'XV9byO%wM`{RskyRO?l^8BFy}<}kPK9wpu(11gS@Xd7Tjqd|3#P#&H+0!s7BhYk7KWR6H{bEB!g}L`K5M%P;T0zqt7wDDU1C&l^8',
-    '_KHds{$?e^DqEY85u#Qr$WV@OKLUoe+XhOG!1#!W<k@P5?r)>N@{YN%I*z9|_8efrEtB0X?O?;u=e#-',
-    'K1FAs5OUcT=_C^7pdU9I2w$_k3x@P?>e6z!4a6+mBPSWWn)Lzr`?H-',
-    'lLVjnyaN7=<~A_jRv(CJa?OsoX48HB?5aWZy)PGYx>;rfvyGfWSWQ(#&~{l*kRm(d8nzREc<pm>eitH1sb9c3Ryff;6ie=rc1gfy',
-    '>!}6RPwb0$TYmuc;DS~(KuC{quwvkCzq-WsS}fAIuyV#WsQg#ND&tHv5-VbFu)HIvn?>J_`S#=RvA+-qj3f2EMcKO$-',
-    'zq(IIf7c@jVo`9`Dm5W#v@x>U~wY8(5wAf<D=uSzxn%{aRjXB6g+Gs>ggIT`Eh9`&;OhXsBkjvz#Gn#<BufdpADnW&a=0uDkzG|o',
-    '+1y&y6i=K?oJeqt_@a8elU#Ch$KZAE~(sjwZgs-Il(A2unotY)rwMcBq>hV!=;v|3w&^gIQx)k`vvmlrjM-jwMSZU&ZSo=O#PVSL',
-    'ub&Rua<(f=36gqiw!8t;wT`=K&A)1!bLw&x)!_pCjpOOjAq?Z!B3vLldZ?vE5h>n=Y45~=Kz9}G~lBblbIG&bvY;L%ec+*^(Fn~y',
-    'PnIA(wXQ>(sq}Y0C;fm0R@>aeev}(!?rP_7Yal6V+@h{Md3*`;`t`tVok@-',
-    '61?*6^}c!gylGUzFW7nlgf|$##0Ng;)#I+#e?M(Ix2*c{lGrJXaK?5qDY_xvZ5I+?Nbh>JdY+l!h=5vDFOjBPq`7z&@QgZ7-',
-    's&jWUet7Esv*Euy2wz1Exm2~Jn-%eNzb=07R~S7=FsyK1Po5fBX>GL^A}y9sOdKv6ylHC-<{NahcfOg47&-',
-    'HKy>ZX{cdacadIuu>XZnYjv}vH`!U_tZl-pmUuLl^Bg$Osb~QmWB!D+fBx&J4_7hSG7}!4AKp*!5V4Zf1O{pTI&|RipfJJEk$R4V',
-    'jwV61^E=n#8(Kry4O8I;$Gy_DhlEih$i8Het7FOgUWw)qt<$SVQe(wES219rcj`Ew0W(Dm7gS*6brXi4(?NSjJ048F{@gX|7a5KR',
-    '7)a#j;^KQt(XnOG;E4^X70<K_wM(&^(O;t@M{mpk-@4)`hKOEc21w8c*W3akpiQT7X(^eLz>kCJgu1tpm+BokzA^HLklA@8Z{-',
-    'g?c?LDz=gB0kb^@=zcrn9H{3rR@t0i%GB@67wjAcb##fFE?`=&6vaE7*CLq{6hX6-',
-    'Zfx!cBeE;x&HZrB&adYVe<2+Sd0|HzUN%Iv?A`Fj*M0Dk6q-',
-    '26{6q)H%xHO|nS`3Bep6=2ZrEURwq3hUvt_Rj;EJ(hxN5|Dmu)4dVZ4aR*4#nj+cn@2~%c)*({yNWT%VLlR13BJ*Z6KOhld2Dez`',
-    'y(prMM;!F_ssb@qp5Xe&a8Wbb8%xu&@y-Xl2B)^Hz~(ny9j*tLTnN<3ZuT%{sYW>|g4K60C>w2}x-',
-    'NPQ*5$GhNt6aa=jF=C>p`d(6au@^#_F(?f^o7B%-',
-    'diFiwrSzU_;l(rO^m`dH~OqE;BBWG+x78(<B7FB$8j%A5$s|aH0;Apg}37so|-J3s0O%cC7(iL7%%MsZe8!{W*$T^%yS-',
-    '?wht`0eJh0f6=X<-',
-    't8LQQ3P?qr99HNsy0?619WWPR%0A&PPO{p(**=aM*pYA+Ue9Wz4PugGGI9k0_b)n>`k+ij!@5K=1k#BChwwXyg#x8QGmZL2V#7qj',
-    'AbTKKMrVX+4q|hb|{79ycwPs!IIUW-nv`iK2`*7yf9re&O!Qt?JInc;{l-*r{k<6vCC+L!?Z_RC;>Uy-CcodM`^^!|7=Cy&5>^b5',
-    'Z-5Hgg2=@6Tn8=o$5SP1pUMM9(?R}AzihAI;sF9_+!=apN`yl4)Ia<X{rwRs6mt+-w9wa?X;U?VUa_NrAsot24NmAMe-',
-    '%6{PWkHq&4^H$~|?-P@tJvfI6mluCo;%AY<%TV-5Qu1t@UVL%DKm=ux5VN^Fx$M9`%^*r!TReWk1ffbqY*K@Z&@-',
-    '@GezL)XN0z$$7W#|C8g%syZLXj_0Oj<8?AGfq{|PZt7VAXxG-jBP+ERp$IR2_wl<>32;WCsw42Qjk2dG*E%fUaM)UdKiR`U$7cM0',
-    'H|G*Ff_7QUn8}{+>ReUH@k_OE>w+n)f<774ZQLNZsIGeCNpEAy{V$iRLDLjkC?_iO^ebNipFuhad|Z9t37$zY`Z1(rkdpH>79Gmn',
-    '8|LCwcdnL<kDo1;-ZKC4W%>|-',
-    '~`^ig!BWxI2Yfze=|Pbx|K1qaNkU!Q(`?yoiLs5PlULIXxj7qX8zp79{3XpWyAt(h;6p7JcbaGR(go0n~{wgpQV~|XER9yZ6Cx-',
-    '{;X=N{AISLdZP9U2luvt;){Oop6rsdP#!2pl3i6g!`e;_&Rt1nzMU##@_t@=DUddmv{X#0QT?=$!>NfyoC`jAmvH#CuSW|3uk8*I',
-    '=(VT319Qp5BfPy2b#&6SrftU+YLmwxugP<jBT?yOm_~nG+r(k#2vUTV=9wSl4A=tXKu$FNXE`}-Y0cs*a5T4y#(UC>^s<u-',
-    '7H()e4Y=ps6hg%th|RD-',
-    '99B9D`mDGJt1)~<vEzsaw30MORDS~eM5{Vb1|8ffnrjddScmGH{qXrlmu)sb_5&6xL1a&<2zq?S7)1{toR(z~-',
-    '9IGH2?Y2aWjm5jldn4(BbiBrtD+rlm`Ec=0WVB<P}$6oNKBWzrejM%@F0s(T>SVyS*5lc2I(p71obAW?2yF6rY$>3aKcXPBO-',
-    'P9H6)3N*PVf*v`VX%*DpousVUF3KXQFuZZhCe+uY!DN5_@YHUX-CpHPar=si@_Pl<(#9;zlVl@440q5MJLqEkz@dB@vo6u8L{B>y',
-    'e4#tLptG6(@axU8TPpv570TU3EOh12*%bD8~>^-{qCL7Et`joz+xd_eA5)74zUEqn2gR-',
-    'h;fPUM4S?F|A52tw#mD^uHbCYcgTbl$DIA`fmV^8B!ahiSA-I~C9x3|Vc07{yy%ALPInE82vfyw+Q#7@z5z211Y}9*<-',
-    '(qrgN(I+b#UK9pScT=bX|V1p?01mQU+$e~#UAzYqvrAsR<lbHaRzp_z)2tJ{Pobmgh-',
-    'aa!KfTSS*V|cw}cqYTON?WhG;Cv%E-9xq#rb$e}1;I|d#QtkNmFPCJxWSq6V@9Te-OZ_Ui6B9Zu3DTS&gxS0m~Q^ZO47SmV-',
-    'b+tH+L8?v>(vIp=I)vy&A#JqaBp^8R7Fdkj}FT=AF~-',
-    '7zlGFqKuQm*;@Mpz4WZYQlN;iDpU8Y5yhJ=vN>8N`IG*eoiO)UFK?+CH^>}q8~F)nD(U&oYsqiL{smdh@!Sn1zNP-Gb%+exxkoAP',
-    '*jrj{mxenA2;tUq<VByUIcRv!UtSLEIL_75(DfQ?yo6l$$^}-_f)03IJIQwk%%~#p3<u-`;K_z>54^w;mo=TdQr=Xxei-',
-    'A<gIe|_A2}Q)ZX`|;{HO@Sh`TP9KknxfrfAi04dW3eSNfsB_(NSNmly{Hm%Q(zLNGO(gfMonx;6UmyKM6ZQiwc^Z)x#rA`*3omc7',
-    'QsWtf=8$ky$L6}Yk5PewZ*lx%l}Q;PBUgx(?6p~vzpD_eEBoQ)@5*(5S6K7KJi<D;YjCAScTDW}u?xbzvDMq=@$Fenh2L0|HwARX',
-    'vQCoLN&3g&^}sW*(wkc(H61P|4h%}18WqrOKv?2N)VZ3Ms_>WbVCNmr`~#yBrvpy!%=d_uzM&nia5?$i%MJTdEeEDfzxxAwhzTb9',
-    'R@AKi;5<#}XpkxjR2w;ylfEc1V&e<jx&JqUYSE$iOg@YBi*KiGxv;40KCxy<W!*vc;-m^H-',
-    'vD33~00Y~(=tf#%*WvT9E=G30hy$o`M3LaSOqB<pWM|x=*dU<505*`;R05%#9y~QtN>QnQ@NZvX)M#BX$I_`Z4k48-',
-    'dGVqirEgId~&ln&rbA!wjJ@J`%gHlGI11#eZacZl+x-',
-    '5F{TYgp{j`HUQ+xe_8)e#_>xl1Y(;ww&jh&2;_4;BD{tFxNlZupt~<=MI_G;slWtd0Eoh=otYzhohiiQmxztpHwBao#DQa4Y%Ke5',
-    'FL?2ivZ~jSXiWQ~>xD1fV-',
-    'X%DhtzoMI(<|5ZpR+yN{9J<~y&5!ONM{9m41KZ>M4krH8hd2L=fG$yl9EEDHgx>5Z&#H*KF@mW7MM^~|N0Q;g4ex$|<2*8><i~|y',
-    'cAim3vrjt=pa+y&k=~uuJy%`Uz8wx(dJ-=(Ls52{wmetGF#?xg{Pqy-wd?VEo!b45OUTI%WDMg~-)+U#rAs||*Xl5T*!}f-',
-    'ap|5LFPh|v)1u8xFo=O3X*aK0IBlt@~tC0JgP`nz@p!IsN<u8R}ZP`N&2dKvdUi=rb{5Kxsf1@S;)dx_e!i0+pEGLp$_BznhrW+E',
-    'Sw_*#Z6D^S>@~vJ}HwBr^x5_wS=~}7{=8IY!&CjF6VC9=|bnkxr1(*;$_4lBR2vIwIlfsCa!L2Dy78}2^E6`Trq{j@UK+WMAbU6P',
-    'FBzd7tgbp!O^Bs9yD%f>ge{n5amwedfoCE_=Ql}m|xIsm`H7v2b7R@ncJUrPT*aR;TBc2cr@GFt@lpw>1_Pv^I*1dUe&oJUf7QHz',
-    '*y$Mpbwp4kLTxwQ?0(ESgjPXMrN*B~%4!tqvboAr7z)2(9OaW(ajer)9rLBz>>!5XcY*iw3+hS{2st!47cyhEbFE@ltJmok4!l$h',
-    '}7+m1I9+KHHFDo%EVHV6YT{|p=#Pb8K2!V43m1gWBNXMLjNM!L1?c$L2r)&Z#Tqq`r1}=Px`AP$t)2%tBza;*!0R~(523UoxlopL',
-    '?zTqtsBY7jAd2c`)z-',
-    'y|FP+|<+DOHso=2k6XCCcUw(^u0P>2k!<P|a+$tq;U0P#e(s2W_NU1OxtQXTIJVZIiFZ0A|Kg!y6$vA?Q|(@0HmcB#3{b2*o~_Ad',
-    'N6OX45kUH4I+{Y2jJ->n)OA<`#R_e8|!<mpqPp9+Qy5-',
-    '^~aY=F!~9swgCFL3lk~27txi?~R4&W7cf#n7Rt_Mc$R6Vq0X$>zNGs5va|FU98DDM<0LK=Ra>7Pcaa&bA3$nvjj(nu`EyTGo@J78',
-    'C`(_vD^K_`mc>(b{cZk$JTpm$#$+7j-o1(@d)n^MGgAAy2|;M<YV#<CUNp&<w2a!YTcSG9N5HzFrk<}plfkkR_-',
-    '<pGxaP2Min47Sejg2DAI~R5gYpg<)E9JL4s;(2;6gs_qu?=Zgi*tA80t;Zb9iP-',
-    'A$@2B1!J5aAgiKb6M{6aUew@6kTulClj)1Rg?y8n@Cis*aAnT5h{Gg8&d1~CL{ZgTlnOGR~<`gRHQMP-',
-    'Z!q*R4|~cnY*~IwF0X>=>0K)1ZV%B{jqe3QeZmP-mRurOtLE~3H=a@clcX#^n$o!_cuCx-aafL`va3(sLJePD-',
-    '*wVxs4keqe)d<1U1tO^+BLgRYQiu=&OzH&Hfp!8G*B)Vg@su$%9!3*1ejSt`yqXlhdv#KrC@Q(-',
-    'eZ<wn_`gss=fwu73?mt45}2zKn!{)|8Jhq?@XeG>2qMjzwBwcq6BaCGWvG&jxE;ZpG_-',
-    'o6wW8QgLA99sfFLdNwJK#>7z7*nh`uXUGD6@zo-%3Oqu>OFFX_wUK>k(2<WWY|Yu^RI0Ah+-',
-    'Bjqf8aEvG()<vlry8yFinqs*w<X+_r7{OpgZFRTZS;>m|IGj<jypg@felI9NO$u;Vjde+_97xI*}3AlgtJNo0`OjPf4{e`N<k75{',
-    '^U>A{5r-bp#ZyNWB^!04vo*c}bA_pP+p}!Yvva-yu2-',
-    '3$rrA?%I+IjpCwA2KS^Txlnz!zxCol=aHaav<5vq;V0Yqwo3dYvNV_!+CkAu#~XBZG$3Ix!Fd`tt;%ulRb%Z1Md~F-',
-    'Xu2{NJWS~tJSO2d3MQ>HpYarFr)Jw=n82dESqQ3Kz<#0swTA1yGewCyO?3L0cd#pGkit;EE-',
-    'W{=Aq#+zUtlOu$0>k?<qFer{h1#L8e<|FsIL4Bv9=vIVa<pXfQ%Jb1W{3(FC+7kq_Kr4LEK$9ta&8Zs+@@VwBH&^X1Z6-',
-    't+j(f#QWB~$#cc&OPL^H0VflBc`LRyIE4pb5pSLvrhV|};7nHbY}s~8#CcuP=8I>IFG1OY?}}Wy7IITen<j!A1{L%s6GVh9sA+d;',
-    '%(cqiUTKjrY8$_?lk+r_mRrPtm_ZOC3p7{R0{yh?e2)QU0Sqwykd4*pwocNnUh+K(-7N+wB3?cZTvGtqy5#0y)uI+Ym{qL-cdFOU',
-    'pF}375t95d752;VVA|^eA%7056c&ebX2mw{clC$^dE6nwipHKR34vaXR0adt{QizJmWhdI2TYffuF*3KY%cr|pMnF0zcCJpk7$Sj',
-    'HRY#>&aawGnwl)tL?o>X%Q;R7LGR=)tOl;E0w;ry%%~K=pM-0s)AoR?B%%-(dlW(nV-',
-    '?%QCA>_<Aw)DxG5T?dXK0~pMQPg03nTwnjo>ivLD`%uHAmK^eed<k5@He4lSSE=N9{|)M{E<R1lfUPs}-',
-    'mBe5uPI?=J8OxxxgO@p7vz9pr*&mXTzRIC;AMYH_UcM?W<XPtEX(%Nh8sV}feAzc*=A`$_BLZ(|C^rK&AOmNQf>916$|`jEYVIME',
-    'c+@+NqVjfRiHg(Tt4)#)R~9@Y#5#2o?anqCSMRL{K)S<dv>G4BX=`m&T#z0teuoa0s~_b+WAJ)4hWz7N3=yD4#mi9X<2rKn~5Z}Q',
-    'e{_c^!%-',
-    'gn^~6`EaS*!mnPi?6h(ogC;t{HG$md;{qT6F9r|rv8G(RSs;r*;a{hO2XyKwY=N4KL<@i<O726z<GXk$jpC&jmkjSk8>}i@X9W4Y',
-    '?*(V70#9TPfO{Bv#)UwLnlZ>Rsac@sgd^Jup6_8M7;t}zrK2+d(2*+waEhio<;Rv3v=VCdP??^!IU|&E(B}tDhHjXT?zIIrk(F%$',
-    'BP-Ev4sxgCOn;(m*%m*P?_gbLJbas(2N+C%7viRSD0v~8<t_$3>UzyC>Q&4u1cO>7T5_#0e3kzLsRmcGuiD8TA!_&?4&viJFj11u',
-    'jpDm?I=r}hLMSpYJ_AJY-6N6ImZeP)k9%B5Vqws-',
-    'F(Z|VNRJ>Qw~}qFTupmB6+>pi<oUm{AJP|UBHmb*YJ#B4}ukRBWXbiRXU@LHE7PGh;VrNX<PfV?(Xa=HDf_pv}px<BMa&XIN-',
-    '$G<nFbp+{xJq+}fX8Xz*|~x-O?}rx$9-OaEYDOyid_$fUiK`N-',
-    '4qw^A3xILHqOz|+#AUfbRNCwiPLOv=TV?}m>OqU;OIM27Fwn1<QN8<S|$5=Gd)c`FwBjUsI%^h26I5v__z4m3%KF~3N9(=r!-',
-    'qE}_^IPI<OkaJ%;fyqM^YhFom9}Is@<3zlqp_~d5l|?;kBi2!1ulyFPpJZE<+v2Y#c^(K$%R9(-',
-    '#K6|_6yodoWyIu~iSl}}(|q5PgVLI0@uq}c?bXp@)E)vO9GpD<L1-',
-    'YLT=9<~sSKl3`N7GmjW?j(0c60t^{Li2vcmQtfA7)CR}Nclln2mAxH&5F=0IVlm_Z2iH{de?0aSPRd%cf`KI?FskBwKH18FQlOso',
-    'DEmrGx=q3N9XO9=OGP(*mk7~y*jQO9Hza=|Dm_6WJWztmVK=WKC~R=24WqR6+m56RvmuG^H#7cm}|0H-',
-    'fBLH{XWy_kIRgx2qEsoQcaG~&GAgo<{nzqze}lGQS=CACNIy?6v~V!PiWWur7u$>bjt_)e|{{M@j`Bv8`LBg)8(L1p@#o;7csHW5',
-    '`6(RL!t@-rn4Fl)#k?C@h~5nWv@NO&z@6YRd(Jo$jFRt%!80RD2|gGK`OmwLA}y=np>8|{-',
-    '*O{(XU#>388ECv*97*IWzV;hvX5)FDT7*u8AZecbT?2ynm`xK=>q+Jqn%jkKY$jZU*cc}ES?Ww#^VnKt6e9P3uoT3Ap8)$N!H(ry',
-    '=V0u@-1ajNLfk!G~Wu39ciwFz729^2K`fn@0ngg5YTAywRL!3MY^t845txhv}MA6>QHE0U8JDw<h5#JP8M|98{+Me(D1M-',
-    'iCj1se+f{{TIjy)Mg1xzphbVs8Px_D!RcT>839%HYJzCX6E31ZRDkx)`R>^?=}*Ei$db&764aFfOQJl4H)B?I~A%z2@--',
-    'qM&`v2x|gfy5)SX9DLulb!zc4YbucDC1-`=LfG<Z-#i<f7tI1P>MdXqKy#O{q)t3RT6IX)iac^=?-5FSvFrgzgIt-',
-    'R;Tw=IjHNl7`8fq%mfedmT6swB1OiOf_*c3zY+=)!F5&Sj0@{upww1j&^b+L!JU=Md>uF-IPSM9#|?#LJb6C3;UnIdZzl&H7eu{g',
-    'niKau^xpSDs<yVavkFvGb@cw?VjyHXBV5lvthJe1tk2}=cj%4_<Vv1_R+bfrI=SA2)rqKey+#LNYS+3j`}V_&)|j{yUy_>gc{0P(',
-    '=qm~7NG|x9R7sWQ8Y8L`zBFX*PZm+FO-',
-    'VPQ&V}&QCJbq==XVbuEx1{j<Fkt-65496ON1z26{!N@4Y+D03-UJJt`uxabZuwV)%FR6RMx-CUmqFkhT(zH84`ftk7ta-',
-    '*)ZLD^k8q=u(<c6jDB~4R@U!^eXJD(UuawFFV6SI7m3#08^UNA;6HDYz{9TuEUS_A9Qv00P>5rxkGZyhNmV4)0V-',
-    '~t0~i!W1q?;OB(WY73$u9)tg<#zhr`3!$7xC&c6ALKFY1(^0lQyi7xUkN)mXu=h0ZsQQ4F|ols^v-',
-    'SiE1VDu%E~iqtfN*jA1_Uq#jILy_Lk3_5!Z73^S{kr3YOuM0)WW&97eJDmnH@?2B`-',
-    '^vGkW@(XAbCl;`WC(Tn+`PKr2t3J#)wW8;CbUQ^2UzF`lsG_;X*7&|T`s)2g^x`FK;=9du_sb_{bA)oL)vU-zA<D0YW|q0bTruFI',
-    '}GF>)H+&DkZIQKbb|NgEP=reCUp+;O8*e!Qa-',
-    '8a9nS0)pVPiEzU^W!NCNGNf*YgW96Z8D24Nr)0XSHI*npKHA{y_q>!JxHlCK5&YZcaHW)wBSNr)0jl4d|-',
-    '?{CI8Je<k`^OUl!?(_4KuhW*3#Ej7&tuW?yTu+LiM5&^z_aNzWRu?e$?}shyfh#5R(;my*q)jV`D{c3hxJ7gGj4aa*y5RxEsg?+B',
-    'X!(Rgs#DM_wN>%yTv$7rY}IQLD7|Z#y0ep)qJzT|g^}dC%+NSbypoSItMoNbiqZDFq^(AJBjdGRRO4oXrtd&`15ErBW*N5=FtosM',
-    'QS0^j9Z$UubTu8}JPz#`Y*`bkz$gtLHj#tCG?Gv`zS2p0?f&I@Cvj_nNgZh`t)^gjaPCc2Kwj_%bJB+7CA=Dwli!2!LY3~?$7zLn',
-    'zoc$5+8mdApVg|TTc0XORvuk|iu<^KN&akjE+@+7*Fy^hj}Hd1ClfuK=W7TC(jfNDw3_byM$AcR13OQF0vqPV-',
-    'YKC{9bSMk#||z63;AKm3(rpqb0b{Ve^FgM_YdR0c<DQ9K3Cx|i>!<DxKKMuan%FX)RGi*4xw6M--KWOvi$OU414Gy5(giZM9vnQS',
-    'DA8<nvRh&WL-I0EWNN}!W$xYa~ydzbvX*a5CMdtKZghj3+Js;6ZCy0jG7f!3U?K6VE52=M@~|La%Y>F)*iOi?cUDG>|Jr6+G-',
-    '|@K<XXJ;Y-',
-    '6K83Tt5gq77jl3;!uNpbUP_rGXlmkY7fZX|XPe`~mor}&#jCV!3oS!CWQ^Gk)&hLt(Zrh}Oxgy)bAvj7Q87#XzAaqs%dU8M!)!<g',
-    'QVpC<J$ct)F@V%QDE*_{%z-<^O~{sbXebe<$#O#tOuS7Vcm>WItNPRrMQRj*@_f$EErDVnv}a0u?5Wi<MZq0S;(>hE-@SV;-',
-    'O_*gIzGyrNw_1c^fvY9_%t6@-',
-    '@Olz`P(T^hDS*Kk{jWkJkf9D;0*+**9R1zUdGQiExV8!||g+Ex=rohp(>^Kta#z0_3bXHhG{9R|h_t6QnGj&)Fjo${V6uy<x;OV@',
-    '8(M7iH=V|2jh&T{F7I-pniKX=sCQHeD^M@|=w?I-@5%|NoHrOVsa8Kryd&6l>?uY@VL7(!pM6w3=-xZ6vA465$YRl#eJGa5o`?-',
-    '*1)!JP+Zjt~Q6pS<n`Q<5a^iHRVyN-BhpGpXxSat?uPVI?5Cf?a8-',
-    'W=<(mkv~A;gh~VACgKODIb^s{M74HwY@UbBS!g;2ioVpOSuHs*XH&{LF=D(`lp0$UUB&%N_%T603`H)ucH3DHF!hh<+m~T)2jdj8',
-    '~Ru)a%KZ4V|8(J<sYPrDcL_KL?_ey>!~+b185|sgMGKqnQx%!;6>=i&62ICPVt@uA>}na#(26}TPSRqp>3J{U$8a14(6B3ZS13-',
-    '63nbK+2ZFHQ$vz&@RYQ;{2)bJBG{7YZ<9`@S%N>?IPEIDLey9u5n|k$-',
-    'J5xZ7Iuw4>beZ6Pnzsa|K<m`HV<|f;Z`$fs;`n3ux4TvyV_?<V;y7K$tK-',
-    '9tVc>pBERbB=KgHory@!mjNwANqbobrZQW7+cqXXbl4tqyK8ot~Sgh%zYY@L%h}Sj}iVH*ID=DPN<FH{gi7hmx;0igHzVwpkt#Ds',
-    'wTF>~9uUR4Y{x`Dp<yc-{8aS}PJ{rv@^~Dm?5!cjx)-j7)Qykiuo)cFKN<}tbS_k&-',
-    'r0>|H{6?1r?f1c7xqZQ`oGc=IP4snWl$`vIS_++SCGK=8h1H`nMP+>71gbBFuWVFz8+kVhKKQ_00&h%i;)yo5uHr~uZuKE79H%1e',
-    'in%n}J(As6ZM-',
-    'YG39Aoc`Zf&^t}NalUFAI9HpSa|+PSf;0qzFAU$4>nU-~TP_TDQzXY$sjp6sZAAjiexvVnjQU>0@!Pdpc4scW3E-zWt<INJ2kv-B',
-    'C?WllV`2BYE^D_V$&2IJue7DE6!jK|-',
-    'moq&QP6WxP{Ql$`*v>P@}G26hLo%hv$f+G)8%Qwi*?P!Ia+KrmiM%VR^O>&%v+pL|Oy+q*<%V>SD6Jp!klnm|YjFRE<X;JarN<Om',
-    'i_^w-',
-    'W5>uhuF)X8?8(x}~w=#%#s8lLfZ6E=1fr7wycFeQ;{^e{K*0O(yK(Dy%;VAaKKQ~0Dqq%n_bc~p^Q)X6zDRxQ>%5gTUw``WZ@wZ1',
-    'C?s1l%ao9(S$MrBt)vI(~C0404_gkk<G^@4%CtsG)lb6SkKU)rkqqE=Z^wN<G9<k7Y!Hk~f4T#K@XMu|{n^E8%hyM}9iH_IT!i|g',
-    '-OV#=BpIWd2i@+Ucj~tY_uCwzNkh9j(+NZD*4Z}AqO>-&rvL<-',
-    '_?CEx4j0Z+b6_oMXhK=uyGLUAh=vQ#x)1TjzwY!JiS;%^U;djUD@Pl6vP8HXxAAv>#g(ljm{amzsmxk@-',
-    '5DZO?HlxlPl>Lf8cpzTI|Kv6g^s~Yey}DjO<e`3qHr_H)LvVIyJ!78`yU&tQi|_~#!`cE9BDK(xxrfei&B?{U&ddJ9(gI%Bhw2%s',
-    'Vy<w5Quk_<kiL_JjiRtNlp?FQQ*$Q>jvjp9ZLwMrW26tX>=GS1>VG-X^!AP_FR7eG-(aQB2-',
-    'Cl#m>8=HI){HQuBWsKeO!;sT_2)qRX*`acje#qX!ZhY&9_*Q;{NW4{PJ=9@R!1Q`}sA%U%UGMrTs?ZGTFKs@+qi-',
-    'h7#_jt20F;p)7`ot8op;L04+~C&PM7%nGo!rOVhBI@*Cmd%ZOh$_mq4I78+OnW{?;o?;K7F({PA*^fI!8-',
-    'y`1Hw(Y{)@u}xfBDK|Rbvz<#;e^E4F2`vQwAl*HN)$4;kSq|B02EL8yHG`Nc;cbY;c<sh@OK_!(t^&l8v*;@(}mCUvn;eBClpVv<',
-    'G_2FbVjiI$sW}mw6qAWnjZnoekf2I>_EROL#sZRseZp01cSQ;hpC^!*?9Sl@OT&fJ}*`=|JINHJIAYa1b}VQUPJ2$EAEqcTsNeWY',
-    'wZsXZ<j5eF=-r>|znXqtL72+BscnOX4%%FaP*#zN2l~Ft<`<pXq)6DVu=<4m{reM2Qyf_g10Hh1RTVgVj+-',
-    'xVq2+d<<!0mnt8rW1C_w-8$ge7a<};C?n&13c@<<X|l5BOvp~vgGR)r`Fa2~gC#dVuA34EO-B`^9;Sl)p%5wExQ+-',
-    'QA#FkPGoe~h`csvH)EiQ!efA-',
-    'j&8cV({H~e#3BApdk+^8SR2m?(i|g9^;5$XS?SX!za{!=9Y(tr{mW6cQo%;VKze`SqPI|IIbZoG&JP<0eq4?uIE>3B!6#%x(rtwV',
-    'k1bMX)qVQZ+GFPyl7FFqJUa>EpT2iRVLMVg=Y>pe)(EHy8YB@OPw1o|L<ZQU(?aZRd8<Y;GmK-',
-    'R#gbp4+iqU5T{}jjWe!)xp+DZgJ$qaEafU|7aP;p^{J2VgOi1k2`b<(|+)?gp|P3n@<lELa{L!6NL8Q(mtjzSk+7dc-',
-    '*p`9*<VYA72kb0^}poM~=m7j044=C`=dL6iqeaDrO|BKpY$M&XMdI#vKfs*3x$S{F(E+qM~?@>GTDB|Nr>Zpo17_O<rB@}olLB{T',
-    'XzGdwiJ_2YVKmyRWtO)HPhsR{wbEPi>*hN!3wROl3S~f2$hxznXTmhses;A+FKkq$nv}j4_i*Uct-',
-    '|c+XOB(uYaC9i5Cw&HrhB=7^GpMoKg^?k{3jr!chas3w%$2OFB(<*ISlrBC2PS<|atTnw9?HpIX4C*d;Inv{=BjZWbWQY))G$r61',
-    'YsOFSvniFg;o(YCOKiug;HY7M@=uKqwpQL>`p0O-',
-    'DFD5Y=RTZ$R`euP>>~8$afRtJsI2+SA=V!&!sC6Z+dE2f2Ew&vSW3o(78}*R-',
-    '&Oc@HQHjW5sa%<|81(3g&BFrBaRn&mA}q3Z3saw%XY2o}zE0%-5pf0`xB;(UvOpj}-m4nU1@mtj2M-',
-    'QLD>>HjFfC>!|T7KeL3U?09cIKu&A@Wb)y|8jwTs%suPUbiA@Z-pFe`{fc1uK(Z*EmdPk8ZN4mfUkzf$j$@b4nPp^wioUsXfMwJ-',
-    'n5;hgSTsu-)M~AUjH>`^;ZlRSu=WRdM&BQ}HQP{Rn$Ti|R077a{@jz1{hs^3{9;dx<!@x@YRl>8EC-',
-    'v3w=HwRYbZYh(t1J8B_fLXF~NSmeIx?UMK@g@N*5sAOZTIs90c#+sP!O(&)PiyHQDE$WuF5YfFmVnGb~L6&O7frTU+f9&+pOTe?<',
-    'JtJ&bmu=aC#2!z9)?&_0<&ofKz%anF?c5>@`~nRUO1H#aVyWN6g7P;R!zhNLW~KL%w+VcBL`&UAKFepee;QX(Ca=9=%Mul{ASM)}',
-    'Rdk!N%RSgM1#PDAd^Y_lzJ^=9rN)0*d?K>w2VM&OY~L9M50n~aCfRmvizmM$ManW~Bi%Y=Z`MD``{9DzCA5<ED4#@|f|)L7<?_i`',
-    '{VKo6-J5<m(J-',
-    'y&PtGOxryY71WUkQ&2PRy*Kvl3@$aQcYoOsQlH|^Kb{FZMP_^E!uONLQB3X<uW(P)fFSZ{akKYwLEg%8LG10fl%r~cr(>GQZ%R!5',
-    '4f-',
-    'JeGdUsf&Ov9yozHPO%g$ZmN!EJk&;@d`V5n+xSWW*iZ)*^l!+yTP$=@2uLIJ0Y*GtVpp;5jQPdrI9;_5sPoeRsmRWvt)U#<g8-',
-    'Eu5!Y3dnS@YtA8V(2+XRnq`A58Lq%c)y~xpg$9ZFTRXGfy`3LHJQx^+AQoQ!0=&&|ZS7_E|~9tU|exr*+0bboSJr#;S00dA?A`ZE',
-    'k~8ALdsK0GS5ucVMOy%<i_BF~+t@sU%Gqn<Cg8P~gt4NM9o|`BShP2Wzbi$#!uHiXe$QBDh`$_!zUWeGMjwFew9i5J|jGb@A(^kO',
-    '7dy7{ZsUk9naDj)&xJ!k1;r5p%l{&nKB+f!M!19Sw4kbzVcY_h3{{2f@`;SRHuS%cRf8E<vgwUSb14vI&MBdsq*Y_#uhKfi4wCbG',
-    'jZ_EE6IF>l?IVv33pmiXnfrSociscVnUi`-',
-    'y9Q*x#UaKZs6)^J<OeZIEXu01#}|mz*fGjj=1@%kq|Yl3M{L;nYR%k2e%hJpxj(gSn%({&p4<+=B5p;4l@NE?KtT0VU;u+3QVSB9',
-    'eh{Zt>Thhd=V#|0i&ez31e37QTq5rosL@JEpL5<4YG6=|T1X4>M1n??;t2uS%X^`F`ae8nTCo04mcl&C$Mgm*T3tGLiM+ERTx`K{',
-    'pW4L>r*|>dz%IkhyI*>hx54S9u16ThVL^uhD`!V~CQ*W#3$<yrvHeJQR$oDYQQ{+L@tsam0VF2Z@{^E8{+mWpu3uxyCYbd8b`ZEM',
-    '$UDRwO_fy<HKWuYH^@^L2;1uvNx4%)in8EZRKtz!x3Oso%2A>_ka7u$rLG-uEmqiS@~C5%`@RTtK;SI34AK{BEuF1?0JjfTC%6vU',
-    '_68xhdebn5|8Rh3XLiSo}||AvW>V%}EA90%l(k1z`^0at)b<x+tD3Ha}?y&eCeVzupjJ?8q^bRk3M-',
-    'jA*mvfo*PFpyjPFfjZP<K{lH#$EL8OUWqvq1|u59`glLw`!WD_>Mr&26Ju@vSNmuGz^4qhS`^seUhi@*7ZV^^5%YR1J2SLUV$LWy',
-    ';ufu`32-bKtb_DMAJ)Iw#A`T|Moy8n^bpDgL61WB=B=EfiS&VvOFXKPX=rn#XCWB@(z(9AzHE3_QM***M#I94@32Yloo-',
-    '`sedJ%@;?3NR9;M=n@Aef$Nz`Wps^@$rDT2Fm?XrknBrYV3myWu^f`vD(!l@`tX-dnMJ^IW_qcC6X!Hd+Xo^>d}gd}6uF*eahb|^',
-    'Qp3Rg=B7?%E^nm;MR86dmOLkKg%C`xE+-7_4V`)5+c#Gkz}neB*5r@<b+cZcBmiDa>8su~-',
-    '+0U#9md@w+n{+tUQkIA;Z{z|l_1)5RYkxAnTyhk2cX~1Oq7HumTr~WP|H*flFP6aEWJ*uj+Ooth!k~61S%BMCUABM@b#h~K`+Bj5',
-    '->~ve}!`OIX{%gpcX!lZ}jC%%d@Y8^o#wz#hDpbru-*w*~>R$S|N&lv(6|qH-B8Dtttc=p?Q4-',
-    'UgVr2r(dz<r=!}k84aiezqdgIy3sVCT=gX^Nld7}5N(P~MkKB3|g>!`NIrM|oQEr^3tmi~jdDy#J`@r>@+T5P1%Mnc2b`tjKEv|0',
-    'QMDX>9n+0kM|yq$=R`850Us)b{IiBpXizAq9FxP%@F%$FcLg^NOjrDR0;OlQ9zCb)*WgvBo4oL^^5?3Y&A=P0vFiqd`(g0rc3E@u',
-    '8`NHPMqKQ<`Q9C#FUyXE$P8D?!2%J1*xqA_6I#A3g;rchi|Ucb~b@GO$)YiJy_6E8<@)TT+!k)t_<WzT+3yz8bI`emX5z5u>4?8)',
-    '4DN9oRlDi&&ucJ4gU6_W%xt2lNQLSw<G;APkjY))pB<mk!=E*Y~aS5!}Vd{$MtLVq;`0nML{=9Qt;B1wkJLR^Rtoe8$w90CCxTt&',
-    '%)%bOWI9Tv*6aW2s%!D3wDvpgsA3wO5QYt^qjqg#W+(S+Re^#eEfhKa0kaU7ofO320qYE!#)9qY!a&U|2*=QOQOOO#UUh#LR#OT5',
-    'LVSiVM}HdMdeA3w^~>3JUxXHxNz7J5UspSvREgav7BEo&;>j>T?`i@z#WNT;)SO?-',
-    '&al^>CzXMG6>p4`iix<=zr>jhMimH9j=t7s4q5m`s9&h-',
-    'NA(=Z#s;_HO!bQ!^dy8o^1=}ftMqDRAvalI*79x4})+f;0;pVjx2i=TmTYDBYuA3`CAMDj|3$;ssl$l7@yCFFY+kUPjOMKRN3cA4',
-    '>*Dy&)+HFplVYYMDOJvK>N<>bMCfn@fctg}%XKZ4%g@sZIsQxL50qk_1RHI)goKxh(gq~N~(%Bmb4926QQwH_Lq`l!k7<A4f-',
-    'S(KF_H{Hj`U-eCRDPCU-od9vk>h((lc(Jvl?!%7pvK)7}o%Ibpvd@o=fK3;c$JOdhLSb5I9X~X7qVN^9=UL|`RRey70?FbfRV(<%',
-    'cOr@9=3+B=z7l>?cCmcEJA4EVMDsfb<5=a+@%?quBnjST&PBi!G7XuhZ*z@RXrQKV9K#1|9)Et48LXKkg168_JXhHefOB=M2Lr6v',
-    'Y}w5T5U93)UF|eh33F|Kaw+AU{$f!6wLIXgZ{-&tbcRVzaj!Ml&-',
-    '~ZIla4md=+9*2!W}wsJ&1loByI2#Df2J4XrprMr>n@&@&y{6sQ$|t8Orm0-',
-    '=cbDQJ5^dqZ$lpN4&mIQwz|0bnT{xycx~|!u?{MI>%}T@CpH94o;Q+o1qmC42czdaPZB2m;nwEEoH(?MG}ienuj^4c%vyG-',
-    '@RWfb*L=Yji8Te(>vtB_aU*;11@6qb^$Lk(3^ay2B1;r%YcFIJ~pZjIYL@Tw8|H7R_G0K@w+}OWYn~i%4dl<JW@N8=`mgDblYl<4',
-    'JUejgb#`^tYI(Sm#_8&0B-',
-    'FQG2HF?!RTx*3d#t#^8v61B{a`pTD;1pOYtkKG2{}4Nm&&M07_=W=ii!?Rg3?)IRiLvr3%jTo1?6L7T=%VVnGWZrG29MkUYl770%',
-    '<XaC7*UKBTYuJ8Z1@@Pp0gJgJ&u&HBX}hTVkw`#*37BkmWAv|TP#CrUAq>kE}5fVn3e<efOKyJ&p3v)1^OWuhaQz^Z7XvA@CSW0A',
-    '?TUJ|4v=V_7>j>Df8c6NBR%5Za35*%QkP?yth1#v%+GV=AJ65wRbzPTto54@hrK8$EX5#owc2z>!au$&p$HLZcA1vzmRuLl7|X_p',
-    'pu;0)hO0Ol#=iLrZqs`SEI+4Q1ef2fC532EX{6q}pG_ctW0S0P5Z`JCHxKruP`mj~0jfZcBr1i|&8Xnb@}3@J4dM$KmCvK{0bOyp',
-    'u=5vTZ$QLnd9O<>^k8NlBT0!C*d%*W9VH!{@YeA)ici$vmMToL7jN%wKifgSsItsi#!Lu0~t&H}JMoVKr5Zsvdn5~*Z2s(+pBfd3',
-    'gLg0E2*-u&Ti2q#E3;v5{CIkgyyoNUIe@VOsEHKr&4wK|~VnX`9JU&<U|1?T|-B1{aMW-(Bgp+L?phptI_K+?-',
-    'f^DR~?QKTTeK)9~fB}=M!6thG|!=iPLcB|YM;dt&#{C1a}@~RMHq7a^=7?VlE0HUB^U90MVgj3Nz3cwcncUBWLk^f<aZNe$HAhxy',
-    '#d8h;&8PDUgZI8PzQUp$!@rz|R=L){6Z4iw~y4WQiaN3|pQL<AaG;Z=1a$cnA#YxKWI~oH&l4{L-',
-    '(^CphwjGp7vfaf5x43k3el3IEwRQ7a`)UKI_VhtxWOvG5ia%KC&6R6gPxy-',
-    ')1_D1md|$XXVijDY75V?$1Y?L42eakY?aI2Vv?6nzFcG+g7#Mye1&qT^Gbo;-',
-    '#<gaib7jIn;7T$z#6v?leC+h!QUiz!3R+fkUosd<JD6N-',
-    '1j#*sgD%Ru#h&DT8)LZ)mlc7C+J>XsL$tkeiHMs|XG>So=6})e4X>xObJ)bs6-',
-    '3dp1TZG>cA?$nKjuz^iybsPB_BK~JdZ~iNo!}+1@s(k7F@||o)msy1D$~mScR*X-',
-    'q?%q^!3Mpi%c2JTly6TOeM^?xYKO`8~ZZv#O*to3m7oIDLky7y-',
-    'SxS0WUuQ$JNS!C71)0?D>G3CNXj#5lmoaSCq_`vg#55x$XZ}kq{bB%W})RsUQ5M{~GIO$~<a6EYxh?%|!6WY0uJW$xplDY5EpfUc',
-    'Kgoth3eOJ~C$^SQGk*!uu+`LC=g+iGzEEP5f$aE=DBdfLOcm_4O<%NKrbmHheGh2xJX{B7oXKkdZXjav00-',
-    'W$fDH&zqUaxosr6oh+-',
-    '5in`hfP>95fQtpY#kE?pqPp75nA_A`8P^lpE(rc_88+He?W5Z_4!niOS=gC3Yb3D1^x@Q5(=pTcsALW2|1o4-',
-    't04;YF9gtsiF=`I9-`+YQ16TZ+^>@@k5$K1vj~Wx8K#(WB@X~zgQV)YEWo_*Bv(g7WLDLkZs<Rr+@G*xL`mX3}AJoM7ZrP9-',
-    'B$j;i^?WeBa_JkG<;ewM#!`}BA&pYpAhDpg<I|(7JCRacEl#?3aQ4V(0quPA+a*_M#cu^6KoY{kd~WTj7_|mUM;L6D<g7sW6SG)^',
-    'n+B+`qaRwFHm?)WvsAoneB=fWN!O_WX{%oVj&K*}R9Docnk($Q3flM(9Rx_k>|>ECIM6x&Sj_mwuS2R#@c!50uBd^=`Eoor$eDu*',
-    '5^Gfy;zVl8)R7Auof{Nnr@MvB<Krqa!FUnNJQ7!=P&im10EB87BtM%Yb?uG|W-',
-    'k@hDa6(Q$J$@e<IMTNKd`<%^v~w&I3v6)<ydy|q8GiM!#e`4)S#}#fRZ0MHY|!xE?`HsVy9voz!B?BMXPi{wFvy<WCs&81Trjm*H',
-    '1dUC1}&CJ^IGu&)*gz$YT79pwF>(2q;&+;n2&dFnpEfgPsOhJ|o_>m5Fkw|049W^n>?$61ljM962MY0mdG5Wv*tS<=y2yYQxwX_b',
-    '_D?@q9`tP|Ch+Byrb8dA5=Ib0bzDjW}<D4h^5H+*m5u{j836s`J9?$WhU9ZRCv9NK|E(E2gZcw-',
-    '=$LqWSg^|1inNM4`u4tfAKh&8b?v8#6G=a&%(+C<8^9B)z+Vtq*&qH$&M{Y?=HDH!M%qDH>hD1yhNS3w(h|AG7jd5cV`D{^xHmax',
-    '#g3^c`kM!XPi!L3}c0?5{>f)<=SQ9;ltyVs@S-',
-    'D%b(_JBv{o$XjWj;rM4s0^ka7zTC95>MP?@lC+S1IajC=eyMIs#|)mVE~dPrTu^X0eLfL=2TV*#g%=N)@1_#tmZW#iq*p-',
-    '{ux5G~2SUt)2NOj~NIC}K_&Aw9_m^?qa+t+v3iPms7=TUobshrfm~1Di+3$tjSYVwEUO#hI3fje>UT&Lh%J>brLpB_03T*K#PtxA',
-    '+(_FP;Nnp&9z5f3fJz?Ute6GI_Fq0kc<ObsqUkhpE!XP%X0+N{m7|qckb5B^K#BE6+iI9QBwEoEOrf1{K72oGIj}Or{1rmk0G72c',
-    '8tJ|OmX;GD{tUt^8Vwi67@Al|4<=a(qjqmoT1DtnGshZ)5K$10B07WyYZD$Rs3&7|+?fFD1NM81ExP?jC|BBC0nka&pX?kqtavx*',
-    '^`=fRRiyRLgf|}Nl`z`B@c8$KRD?de9)t}O-Glhw_qDM4N!iS-',
-    '>@oWcW0u1)*H*VlAr$S1bu`c%_qsa>V6eTbc<n$SnOaLw6l<H}vVvetw$F^-',
-    '*cUiy;cwMce(pIB<<Mv=72Zv~AQ1C<lulWf*#uW<Jw>n9H`<>H!8r`&;==Xo=RUD2FQO8tph<RZ_dJlImfF;D|_BMfh5WOgT#!g@',
-    '@RvwrVNF9OnVT318Wd3IY`$k_izZKgc@e++t<O3FXRJKxkON<C-hED-',
-    '3tx|;jyvaEhFeckaSX`lJ<`$8~k<1I5gliU{5O;Fig=mZ256jlb6sn*cg+w?B!ZA(d)Pu4#>)f%gIo6b`gu>7J$dokCz0V5XqR(E',
-    '=&(Htp7f930gu*%3po-b@1wuujix`U>5gQvD(B6_MTTzN)z`D@khPpyglbiwwxX#CGWqD5_(wP-MFSj+OfUi7Wg@pJn?<;60X)im',
-    'VxF4&$UwjPK6lm_^@PGQ&J^mTOW^r(b?F6~$T49hCv2^86=25W9|HDJJ5^5UN?^Dl;X)|cm)Y~B@2k|nnn3|nO<~||%WXU&dnS;{',
-    ';Pw_*t9|7T!pimTRYyR^MP?0ok5GFY_yVrLpdBkiu@VOZnkr9Vv2S$ftausi`2H}aOa+Q}U5Dv)iO}p2mW}i!of-',
-    '4|j5f<FUqfd_3L`4wG4J$XY_Dw49;o{5WtCp|h+U`&Nts0{Gq%<1<|43Xx9uEiFbNfFmmW4h7FpYT9{`=Am)~}CYrsFuo#Wk~@<+',
-    '|(PR5Ug0Zw;`6J0Sa~lGM>_4C-',
-    'y9?g3>gsRr~=YhWgn0LO;DOI`YaJ$*XXanT>PF5)RTCaAC94;6_Fu+zyDfLw;;wVM|bicL*CUkyd?`m2QJ_7x)e4UdOeZi)wksOK',
-    'LQU=LkA-dk6HYTN&Y!`KX%t+8O<at=DFL&r-U8*AsGJdskRMC&6|0Q(f{_RAqX+-',
-    'chF*e!UwwAD=ZIs(io>Z!Zfm)b^`(&A!;bS~Z716S~nG{j-',
-    'JziMKvS+@Q5lghGEeMIB_cV+n?Sl^>k4=#5nXtRgs)?s94DzwDc?uZl1xZ6Ym7wG=o)U1-',
-    'uEg*lbX<x`b9La4Prbu+iaaYKd;!M{1@(PuWWnmI)x3CQ$$G!&}+%8-iA>uUv&!l-gqHe#~0HcY15W0m3Blq^(*!KK1-',
-    'N=oO3?A%+^Q(cLI2U*cKD0T=^HWhsGKqS}`U?#H#9XN=eI)CK;^i~IaeE&d9p8By<~M#MC}V{5xgf|(3$+@(5V(WTs}$q<=Xm*rv',
-    'C+6a1~d9G`2zrJUA3=F22f_^HZcvmgCVOk`}ELImMF`OX<GGAl$MZY6v{4c3X66UvogQ&FQ@p#McI~2w3BR|@bP5}`q$+5gid)0i',
-    'U>iuBoJ<xU<oUtc~@(eej7H^5?QnpQ26}}X+?CUS7va76<bjehK<(UvnRBoMasQl<^r2s27Mj?I!lf|#u$XLtEaG-',
-    '{AoF#UfAJjt%oxKAnMMX<Sz8XzWZ<0&6?7en!ke;cyF|KWcuN6=I}29E57~RnKY~UnKU(eE>IJHW54B!$w0evh{~Wy_Lsn8faGNn',
-    '5_r_hw0`&8_e$s4ynmKR`Anju`EQX@O*rXlh<Vb(@iKaQr_0Cw8LaLq^zh(ce&Ni2NB<u^R0Yen6ZPk|voFvsj*-',
-    'm{K(CA;@jTEW#()z_229$@RW=?T!jit9xWa<#g0M?NTZ0?5il37hk7a51B0CHtsl0YzIG+nDTR&GIf_nwaGS44U$#`sE=vEW1>{c',
-    '2>61_fCJyKMKGYJ^%P}*Nv!mY546hhiLe@FJ15zg_YK<u6v!1mG3CT)IhRD&EzA)HKcORiSqlr+*6D~^$!XX+R44BmO8s3QDKbJn',
-    '1)iAumTxkbDUcBAuc^^SLqSla%llMcPES>Ae~$iUR>#Vmu2*(V)%&QPRjh029SId!qF+iLl>@Z@m0UyjPX_z@)%lOp(2sG-lA@{r',
-    '(Zrwf9dnp$)<(cF7h)q|+60aB%@D-',
-    'lg$Fu!C(Zp>7HEgR^Vg>KVd&)lhaK{Wc!5O%V4Ut*bij`4FWAik}ZD{CryC~Pcx4A}z0`5UenkJ`gn<@xYK3anb6zFn5H?F)SLJe',
-    '*fNC7H>Vcb7ecz%!Ho%)yQ_VFx#BJxtZOpfHzPbf#9^_X8r>3U<F&i-d{WsL-QspY7cPpSuAkbXml5G#kF(s${3Jj#x_{CzrJKcs',
-    't&~PB{+j1Y=L)Z_&Cf6~XE$gQ3kEnP+_35<BK{+;zkjT#(#VC}lRYv`%@<zXH}b$zZZ`6V&3}C4D=F8dS)Dw1iIfurd0Cr@H-T-',
-    '7|+^iE|gB@`iZ76j!9(2<6^fgD@epCbwp+VC<V@YC1NjH;VJoSTX%C!U6#KQ0c64?zd)7Iu}NzZ$6|Yxs==Nf2A0W57_VvBO?!ot',
-    'dZDJB${!O$mg_C0s1MjVvLXAC~5yEL0M-z1kC4^>fqyh>a-',
-    'k`BTC?qwpw>Ia*e21P)n@tR^PE&dgrA4hZrNedVoFkPde`@*T@>3qqSRvnk&!pH|sd0Pgvi+$x!G=StPNY7>2*o+ujZEq2~>w{tY',
-    'Bq{<kq}k?y8jBJAdp$(wgGP7mx&2uaTIpPQn22A3L_$(@4m5o>3Q#MKFZ7A51`xSG|2?%%ha(OFuaqOidGx4%`mA?i`b@2C!NmsX',
-    'T|ubjk3){vaTTJ4*dmQSCIm)6Ud>Jx0OhpoQQ@PkA)&C3CB(g{hzo2)|P9)6kQbAPwOhp?hn-',
-    '~zcUIG%J<9$%(R!Q`2GwFGx?;8dHcdHlcD$~TFLr~MN2F7l1?T34{F%%KJR;lSHTB4zF}yjBewQA!8SaQ;T8tKPUhpN=@!+WB((7',
-    'vT+ePb14~Vts`t6zg5pP#r+_|1Grdsc{dWxI8H|GNC#3?A00=+fFa1_qE?9heNqO-Jz5W5+LBURsKRfTP9ppT1x_4OUgrNcQ|1+r',
-    'K2z2KL)vlw&L`=*l;zVvU+WG=fdv_iKjNQ3i7fPefXVSmJ>-TlupdQJ#hNxvHO?RmtpjKD=1k6#fFB~mhlGSxps-mW#b6?ff)6<&',
-    'sZnzQ4R*zXHcPLj@t;?q2*?mJ}XMHNhtMraCe4*KOHIY#e5}pL?HOvaW@H$1DJB$1x&H+a&=Q9kCnRtQvco##5@wp&??b(VCW=?4',
-    'ym#ng!A|PRrPJ$7Ri96(m5mlz@~wER3RZ}`%h#Az;0$i7l0_b_$9upFq(0^dL`*B>7baY8ys|3%v>OVU`^k4RW+pM*}ft3I7BmZT',
-    '3@?Zz;b1<Y^0#<|C<p$QE)iaV=v#<r&o||@9p371+oqs%VtJ&T!<|&we`9+Q>_@-t{r;q3C`e&z6hON3-',
-    'L#q7>M~`yWqfE6KNukX@s7{&qhMSKNsr!yp#CP30A?sY|n*S;xYd^?HE|ZzG7Oln1m|x>Bo|!5Nd2b{HGp!MN?DUJ+UXj_@~UJ8V',
-    'BkG_<)$nVB0ztT_>9Q!zaiL;SqDAe_PXNWB<_y!VAbdCE_+2mtdGJBLZDoRRZjyjs_1T!rKt%tbC?s&_z6wxrH#Qr&bx6#^cp6P0',
-    'eE=X$nv^x=+dZ7?Q-wmE}@=wsFm>zU$!-',
-    'Z?kE;MGOL__<XLqE#}4F=>sI=0%_<sC=iMT0q#=o1&RO*;!ZxuNbrt8Jot3`|D`;+reSNHYwgB!%X#(-',
-    'oH)kZA=`B$b0;q^JQ%(x=3n`;wPdpm3-M@S>G3EQSTY8Mq-@J(BGhA&uT-9W<u=D^)-',
-    '9BdF{hZsFKF7Q4!mo__PmeL*W?!BdQd<RMU^|*hKWUZIJT+jZ(O&?r`D|CIVlE>$O}d!ZCbmj{Rj~$t44i%BZc8zZ^|uH=F%2=(X',
-    'aC!lEt}Tpb_4&^{$7$;Ha!BdWl<yo%*qU|M!V4?s}!P(4GoyNNq#ux(cyA9b%%?Oo&bljnyO(-^xdk>aI(ZbqW=65RFx!-',
-    'p^j;V*)Nne*!k{UTGJx9EH_%&d;O$pH@F>7sU',
-)
-_d = _b.b85decode("".join(_p).encode("ascii"))
-_d = bytes((_v ^ _k[_i % len(_k)]) for _i, _v in enumerate(_d))
-_s = _z.decompress(_d).decode("utf-8-sig")
-exec(compile(_s, "<观影爬虫V28详情页选集分发版>", "exec"), globals(), globals())
-del _b, _z, _k, _p, _d, _s
+import ast
+import base64
+import html as html_lib
+import inspect
+import json
+import re
+import threading
+import time
+from collections import OrderedDict
+from concurrent.futures import FIRST_COMPLETED, ThreadPoolExecutor, as_completed, wait
+from urllib.parse import parse_qsl, quote, urlencode, urljoin, urlsplit, urlunsplit
+
+import requests
+from lxml import html
+
+from base.spider import Spider as BaseSpider
+
+
+class Spider(BaseSpider):
+    RUNTIME_TAG = "GUANYING-V28"
+    ADDRESS_PAGE = "https://www.xn--ykq321c.com/"
+    BOOTSTRAP_HOST = "https://www.xn--10vr61a3xc5x3b.com"
+    FALLBACK_HOSTS = (
+        "https://www.xn--74qz10cqsltibh40akss.com",
+        "https://www.xn--10vr61a3xc5x3b.com",
+        "https://www.xn--vcsx1ip8b8w4i.com",
+        "https://www.xn--wcv59z.com",
+        "https://www.xn--kivn76b41nnhi.com",
+        "https://www.hgeme.com",
+    )
+    CATEGORIES = (
+        ("mv", "电影"),
+        ("tv", "剧集"),
+        ("ac", "动漫"),
+        ("hits/mv", "热门电影"),
+        ("hits/tv", "热门剧集"),
+        ("hits/ac", "热门动漫"),
+    )
+    CATEGORY_NAMES = dict(CATEGORIES)
+    PROVIDER_ORDER = (
+        "115网盘",
+        "夸克网盘",
+        "阿里网盘",
+        "百度网盘",
+        "迅雷网盘",
+        "UC网盘",
+        "天翼网盘",
+        "123网盘",
+        "移动网盘",
+        "微云",
+        "其他网盘",
+    )
+    PROVIDER_TYPE_NAMES = {
+        0: "迅雷网盘",
+        1: "百度网盘",
+        2: "夸克网盘",
+        3: "天翼网盘",
+        4: "UC网盘",
+        5: "阿里网盘",
+        6: "115网盘",
+        7: "123网盘",
+        8: "移动网盘",
+        9: "微云",
+    }
+    PROVIDER_DOMAIN_NAMES = (
+        ("115.com", "115网盘"),
+        ("anxia.com", "115网盘"),
+        ("pan.quark.cn", "夸克网盘"),
+        ("alipan.com", "阿里网盘"),
+        ("aliyundrive.com", "阿里网盘"),
+        ("pan.baidu.com", "百度网盘"),
+        ("pan.xunlei.com", "迅雷网盘"),
+        ("drive.uc.cn", "UC网盘"),
+        ("cloud.189.cn", "天翼网盘"),
+        ("123pan.com", "123网盘"),
+        ("caiyun.139.com", "移动网盘"),
+        ("share.weiyun.com", "微云"),
+    )
+    PROVIDER_ACCEL_KEYS = {
+        "115网盘": "PAN115",
+        "夸克网盘": "QUARK",
+        "阿里网盘": "ALI",
+        "百度网盘": "BAIDU",
+        "迅雷网盘": "XUNLEI",
+        "UC网盘": "UC",
+        "天翼网盘": "PAN189",
+        "123网盘": "PAN123",
+        "移动网盘": "PAN139",
+        "微云": "WEIYUN",
+        "光雅网盘": "GUANGYA",
+    }
+    MAGNET_RE = re.compile(
+        r"magnet:\?xt=urn:btih:([A-Fa-f0-9]{40}|[A-Z2-7]{32})(?:&[^\s\"'<>]*)?",
+        re.I,
+    )
+    BTIH_RE = re.compile(r"btih:([A-Fa-f0-9]{40}|[A-Z2-7]{32})", re.I)
+    SUBTITLE_RE = re.compile(r"中文字幕|简繁|简中|繁中|中字|字幕|CHS|CHT|SUB", re.I)
+    QUALITY_4K_RE = re.compile(r"2160|4K|UHD|HDR|Dolby\s*Vision|杜比视界|\bDV\b", re.I)
+    QUALITY_1080_RE = re.compile(r"1080|FHD|BluRay|WEB[- .]?DL", re.I)
+    NEGATIVE_RE = re.compile(r"广告|推广|sample|预告|抢先|TC|TS|CAM|枪版", re.I)
+    VIDEO_EXT_RE = re.compile(r"\.(mkv|mp4|avi|mov|wmv|flv|ts|m2ts|webm)(?:$|[?#])", re.I)
+    STATUS_PREFIX = "guale-status:"
+    PRIVATE_PREFIX = "guale-v1:"
+    PACK_KEYS = {
+        "kind": "k",
+        "magnet": "m",
+        "magnets": "g",
+        "url": "u",
+        "urls": "x",
+        "pwd": "p",
+        "provider": "r",
+        "profile": "q",
+        "profiles": "o",
+        "dir": "d",
+        "id": "i",
+        "title": "t",
+        "source": "s",
+        "episode": "e",
+        "label": "l",
+    }
+    IMAGE_HOST = "https://s.tutu.pm"
+    MAX_CACHE = 48
+
+    def __init__(self):
+        self.name = "观影爬虫"
+        self.address_page = self.ADDRESS_PAGE
+        self.username = ""
+        self.password = ""
+        self.timeout = 15
+        self.probe_timeout = 5
+        self.probe_ttl = 300
+        self.probe_each_request = False
+        self.max_magnets = 40
+        self.magnet_fallback_links = 2
+        self.magnet_raw_fallback = True
+        self.max_per_pan = 40
+        self.max_online_groups = 24
+        self.online_probe_workers = 3
+        self.online_probe_deadline_ms = 1800
+        self.online_quality_grace_ms = 180
+        self.online_probe_bytes = 4096
+        self.online_result_ttl = 90
+        self.search_cache_ttl = 300
+        self.search_stale_ttl = 1800
+        self.search_quality_grace_ms = 120
+        self.category_cache_ttl = 300
+        self.category_stale_ttl = 1800
+        self.max_probe_hosts = 4
+        self.category_wait_timeout = 8
+        self.host_fail_cooldown = 120
+        self.enable_hedged_requests = True
+        self.hedge_delay_ms = 250
+        self.warm_standby_mirror = True
+        self.direct_only = True
+        self.mirror_config_url = ""
+        self.address_pages = [self.address_page]
+        self.fallback_hosts = list(self.FALLBACK_HOSTS)
+        self.enable_online_sources = True
+        self.show_empty_magnet_group = True
+        self.expand_pan_playlists = True
+        # Cached candidates render immediately; uncached providers expand in
+        # background so detail pages do not wait on remote cloud-drive APIs.
+        # V28 enables the larger budget after init(); direct unit-test
+        # construction keeps the historical V25 budget until then.
+        self.aggressive_detail_prewarm = False
+        self.pan_expand_providers = 0
+        self.pan_expand_attempts = 2
+        self.pan_fallback_links = 3
+        self.pan_expand_workers = 4
+        self.pan_background_workers = 4
+        self.pan_background_job_limit = 8
+        self.backend_play_cache_ttl = 20
+        self.pan_click_inflight_wait = 8
+        self.pan_failure_cooldown = 300
+        self.pan_link_failure_cooldown = 1800
+        self.pan_capability_failure_cooldown = 1800
+        self.pan_rate_limit_cooldown = 120
+        self.pan_transient_failure_cooldown = 20
+        self.pan_unknown_failure_cooldown = 60
+        self.metrics_log_interval = 60
+        self.alist_api = ""
+        self.alist_token = ""
+        self.backend_parse = False
+        self.category_mode = False
+        self.categoryMode = False
+        self.headers = {
+            "User-Agent": (
+                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                "AppleWebKit/537.36 (KHTML, like Gecko) "
+                "Chrome/136.0.0.0 Safari/537.36"
+            ),
+            "Accept-Language": "zh-CN,zh;q=0.9",
+        }
+        self._lock = threading.RLock()
+        self._cache_lock = threading.Lock()
+        self._sessions = {}
+        self._session_times = {}
+        self._failed_hosts = set()
+        self._failed_until = {}
+        self._host = ""
+        self._host_checked_at = 0.0
+        self._last_candidates = []
+        self._candidate_cache = []
+        self._candidate_cached_at = 0.0
+        self._last_diag = {}
+        self._page_cache = OrderedDict()
+        self._resource_cache = OrderedDict()
+        self._online_history = OrderedDict()
+        self._online_result_cache = OrderedDict()
+        self._search_cache = OrderedDict()
+        self._search_inflight = {}
+        self._refresh_inflight = set()
+        self._pan_link_history = OrderedDict()
+        self._backend_parse_cache = OrderedDict()
+        self._backend_play_cache = OrderedDict()
+        self._backend_session_lock = threading.Lock()
+        self._backend_sessions = {}
+        self._backend_parse_failures = {}
+        self._backend_parse_failure_errors = {}
+        self._backend_parse_inflight = {}
+        self._pan_capability = {}
+        self._pan_capability_configured = False
+        self._warmup_guard = threading.Lock()
+        self._warmup_event = threading.Event()
+        self._warmup_started = False
+        self._warmup_generation = 0
+        self._standby_generation = -1
+        self._pan_background_lock = threading.Lock()
+        self._pan_background_urls = set()
+        self._pan_generation = 0
+        self._online_executor_lock = threading.Lock()
+        self._online_executor = None
+        self._search_executor_lock = threading.Lock()
+        self._search_inflight_lock = threading.Lock()
+        self._search_executor = None
+        self._refresh_executor_lock = threading.Lock()
+        self._refresh_executor = None
+        self._hedge_executor_lock = threading.Lock()
+        self._hedge_executor = None
+        self._standby_lock = threading.Lock()
+        self._metrics_lock = threading.Lock()
+        self._metrics = {}
+        self._metric_latencies = {}
+        self._metrics_last_log = time.time()
+        self._pan_parse_stats = {
+            "attempts": 0,
+            "successes": 0,
+            "ewma_ms": 0.0,
+        }
+
+    def getName(self):
+        return self.name
+
+    def init(self, extend=""):
+        config = self._config(extend)
+        runtime = self._atvp_runtime_context()
+        if runtime.get("local_proxy_config"):
+            config = dict(config)
+            config["local_proxy_config"] = runtime["local_proxy_config"]
+        self.address_page = self._http_url_value(config.get("address_page"), self.address_page)
+        configured_pages = config.get("address_pages") or config.get("publish_pages") or []
+        if isinstance(configured_pages, str):
+            configured_pages = re.split(r"[\s,;]+", configured_pages)
+        self.address_pages = self._http_url_list([self.address_page] + list(configured_pages or []))
+        self.mirror_config_url = self._http_url_value(
+            config.get("mirror_config_url") or config.get("host_config_url"),
+            self.mirror_config_url,
+        )
+        configured_hosts = config.get("fallback_hosts") or config.get("mirror_hosts") or []
+        if isinstance(configured_hosts, str):
+            configured_hosts = re.split(r"[\s,;]+", configured_hosts)
+        self.fallback_hosts = self._url_list(list(self.FALLBACK_HOSTS) + list(configured_hosts or []))
+        self.username = str(
+            config.get("site_username") or config.get("username") or self.username
+        ).strip()
+        self.password = str(
+            config.get("site_password") or config.get("password") or self.password
+        )
+        self.alist_api = self._url_value(runtime.get("api"), "")
+        self.alist_token = str(runtime.get("token") or "").strip()
+        with self._pan_background_lock:
+            self._pan_generation += 1
+            self._pan_background_urls.clear()
+        self._configure_pan_capabilities(config)
+        self.probe_each_request = self._bool_value(
+            config.get("probe_each_request"), self.probe_each_request
+        )
+        self.max_probe_hosts = self._bounded_int(
+            config.get("max_probe_hosts"), self.max_probe_hosts, 2, 20
+        )
+        self.host_fail_cooldown = self._bounded_int(
+            config.get("host_fail_cooldown"), self.host_fail_cooldown, 15, 1800
+        )
+        self.enable_hedged_requests = self._bool_value(
+            config.get("enable_hedged_requests"), self.enable_hedged_requests
+        )
+        self.hedge_delay_ms = self._bounded_int(
+            config.get("hedge_delay_ms"), self.hedge_delay_ms, 100, 1000
+        )
+        self.warm_standby_mirror = self._bool_value(
+            config.get("warm_standby_mirror"), self.warm_standby_mirror
+        )
+        self.direct_only = self._bool_value(
+            config.get("direct_only"), self.direct_only
+        )
+        self.timeout = self._bounded_int(config.get("timeout"), self.timeout, 8, 45)
+        self.probe_timeout = self._bounded_int(
+            config.get("probe_timeout"), self.probe_timeout, 5, 20
+        )
+        self.probe_ttl = self._bounded_int(config.get("probe_ttl"), self.probe_ttl, 0, 1800)
+        self.max_magnets = self._bounded_int(
+            config.get("max_magnets"), self.max_magnets, 5, 100
+        )
+        self.magnet_fallback_links = self._bounded_int(
+            config.get("magnet_fallback_links"), self.magnet_fallback_links, 1, 3
+        )
+        self.magnet_raw_fallback = self._bool_value(
+            config.get("magnet_raw_fallback"), self.magnet_raw_fallback
+        )
+        self.max_per_pan = self._bounded_int(
+            config.get("max_per_pan"), self.max_per_pan, 5, 150
+        )
+        self.max_online_groups = self._bounded_int(
+            config.get("max_online_groups"), self.max_online_groups, 1, 50
+        )
+        self.online_probe_workers = self._bounded_int(
+            config.get("online_probe_workers"), self.online_probe_workers, 2, 4
+        )
+        self.online_probe_deadline_ms = self._bounded_int(
+            config.get("online_probe_deadline_ms"), self.online_probe_deadline_ms, 600, 4000
+        )
+        self.online_quality_grace_ms = self._bounded_int(
+            config.get("online_quality_grace_ms"), self.online_quality_grace_ms, 0, 800
+        )
+        self.online_probe_bytes = self._bounded_int(
+            config.get("online_probe_bytes"), self.online_probe_bytes, 512, 8192
+        )
+        self.online_result_ttl = self._bounded_int(
+            config.get("online_result_ttl"), self.online_result_ttl, 15, 300
+        )
+        self.search_cache_ttl = self._bounded_int(
+            config.get("search_cache_ttl"), self.search_cache_ttl, 30, 1800
+        )
+        self.search_stale_ttl = self._bounded_int(
+            config.get("search_stale_ttl"), self.search_stale_ttl,
+            self.search_cache_ttl, 7200
+        )
+        self.search_quality_grace_ms = self._bounded_int(
+            config.get("search_quality_grace_ms"), self.search_quality_grace_ms, 0, 500
+        )
+        self.category_cache_ttl = self._bounded_int(
+            config.get("category_cache_ttl"), self.category_cache_ttl, 30, 1800
+        )
+        self.category_stale_ttl = self._bounded_int(
+            config.get("category_stale_ttl"), self.category_stale_ttl,
+            self.category_cache_ttl, 7200
+        )
+        self.enable_online_sources = self._bool_value(
+            config.get("enable_online_sources"), self.enable_online_sources
+        )
+        self.show_empty_magnet_group = self._bool_value(
+            config.get("show_empty_magnet_group"), self.show_empty_magnet_group
+        )
+        self.expand_pan_playlists = self._bool_value(
+            config.get("expand_pan_playlists"), self.expand_pan_playlists
+        )
+        self.aggressive_detail_prewarm = self._bool_value(
+            config.get("aggressive_detail_prewarm"), True
+        )
+        self.pan_expand_providers = self._bounded_int(
+            config.get("pan_expand_providers"), self.pan_expand_providers, 0, 12
+        )
+        self.pan_expand_attempts = self._bounded_int(
+            config.get("pan_expand_attempts"),
+            3 if self.aggressive_detail_prewarm else self.pan_expand_attempts,
+            1,
+            30,
+        )
+        self.pan_fallback_links = self._bounded_int(
+            config.get("pan_fallback_links"), self.pan_fallback_links, 0, 12
+        )
+        self.pan_expand_workers = self._bounded_int(
+            config.get("pan_expand_workers"), self.pan_expand_workers, 1, 8
+        )
+        self.pan_background_workers = self._bounded_int(
+            config.get("pan_background_workers"),
+            6 if self.aggressive_detail_prewarm else self.pan_background_workers,
+            1,
+            8,
+        )
+        self.pan_background_job_limit = self._bounded_int(
+            config.get("pan_background_job_limit"),
+            12 if self.aggressive_detail_prewarm else self.pan_background_job_limit,
+            2,
+            24,
+        )
+        self.backend_play_cache_ttl = self._bounded_int(
+            config.get("backend_play_cache_ttl"), self.backend_play_cache_ttl, 5, 120
+        )
+        self.pan_click_inflight_wait = self._bounded_int(
+            config.get("pan_click_inflight_wait"), self.pan_click_inflight_wait, 2, 20
+        )
+        self.pan_failure_cooldown = self._bounded_int(
+            config.get("pan_failure_cooldown"), self.pan_failure_cooldown, 30, 1800
+        )
+        self.pan_link_failure_cooldown = self._bounded_int(
+            config.get("pan_link_failure_cooldown"), self.pan_link_failure_cooldown, 60, 7200
+        )
+        self.pan_capability_failure_cooldown = self._bounded_int(
+            config.get("pan_capability_failure_cooldown"),
+            self.pan_capability_failure_cooldown, 300, 7200
+        )
+        self.pan_rate_limit_cooldown = self._bounded_int(
+            config.get("pan_rate_limit_cooldown"), self.pan_rate_limit_cooldown, 30, 1800
+        )
+        self.pan_transient_failure_cooldown = self._bounded_int(
+            config.get("pan_transient_failure_cooldown"),
+            self.pan_transient_failure_cooldown, 5, 300
+        )
+        self.pan_unknown_failure_cooldown = self._bounded_int(
+            config.get("pan_unknown_failure_cooldown"),
+            self.pan_unknown_failure_cooldown, 15, 600
+        )
+        self.metrics_log_interval = self._bounded_int(
+            config.get("metrics_log_interval"), self.metrics_log_interval, 30, 600
+        )
+        self.category_wait_timeout = self._bounded_int(
+            config.get("category_wait_timeout"), self.category_wait_timeout, 1, 12
+        )
+        with self._lock:
+            self._sessions.clear()
+            self._session_times.clear()
+            self._failed_hosts.clear()
+            self._failed_until.clear()
+            self._host = self._normalize_host(
+                config.get("bootstrap_host") or self.BOOTSTRAP_HOST
+            )
+            self._host_checked_at = time.time() if self._host else 0.0
+            self._candidate_cache = []
+            self._candidate_cached_at = 0.0
+        self._close_backend_sessions()
+        with self._cache_lock:
+            self._page_cache.clear()
+            self._resource_cache.clear()
+            self._online_history.clear()
+            self._online_result_cache.clear()
+            self._search_cache.clear()
+            self._pan_link_history.clear()
+            self._backend_parse_cache.clear()
+            self._backend_play_cache.clear()
+            self._backend_parse_failures.clear()
+            self._backend_parse_failure_errors.clear()
+            for event in self._backend_parse_inflight.values():
+                event.set()
+            self._backend_parse_inflight.clear()
+            self._pan_capability = dict(self._pan_capability)
+        with self._search_inflight_lock:
+            self._search_inflight.clear()
+            self._refresh_inflight.clear()
+        with self._warmup_guard:
+            self._warmup_generation += 1
+            self._warmup_event = threading.Event()
+            self._warmup_started = False
+        with self._online_executor_lock:
+            executor = self._online_executor
+            self._online_executor = None
+        if executor is not None:
+            executor.shutdown(wait=False)
+        with self._search_executor_lock:
+            search_executor = self._search_executor
+            self._search_executor = None
+        if search_executor is not None:
+            search_executor.shutdown(wait=False)
+        with self._refresh_executor_lock:
+            refresh_executor = self._refresh_executor
+            self._refresh_executor = None
+        if refresh_executor is not None:
+            refresh_executor.shutdown(wait=False)
+        with self._hedge_executor_lock:
+            hedge_executor = self._hedge_executor
+            self._hedge_executor = None
+        if hedge_executor is not None:
+            hedge_executor.shutdown(wait=False)
+        with self._metrics_lock:
+            self._metrics.clear()
+            self._metric_latencies.clear()
+            self._metrics_last_log = time.time()
+            self._pan_parse_stats = {"attempts": 0, "successes": 0, "ewma_ms": 0.0}
+        self._log(
+            "init",
+            direct_only=int(self.direct_only),
+            bootstrap=self._host or "none",
+            timeout=self.timeout,
+            probe_timeout=self.probe_timeout,
+        )
+        # Preheat mirror selection, authentication and the first page without
+        # delaying plugin initialization or the caller's first UI frame.
+        self._start_warmup()
+
+    def destroy(self):
+        with self._warmup_guard:
+            self._warmup_generation += 1
+            self._warmup_event.set()
+        self._close_backend_sessions()
+        with self._online_executor_lock:
+            executor = self._online_executor
+            self._online_executor = None
+        if executor is not None:
+            executor.shutdown(wait=False)
+        with self._search_executor_lock:
+            search_executor = self._search_executor
+            self._search_executor = None
+        if search_executor is not None:
+            search_executor.shutdown(wait=False)
+        with self._refresh_executor_lock:
+            refresh_executor = self._refresh_executor
+            self._refresh_executor = None
+        if refresh_executor is not None:
+            refresh_executor.shutdown(wait=False)
+        with self._hedge_executor_lock:
+            hedge_executor = self._hedge_executor
+            self._hedge_executor = None
+        if hedge_executor is not None:
+            hedge_executor.shutdown(wait=False)
+        with self._cache_lock:
+            for event in self._backend_parse_inflight.values():
+                event.set()
+            self._backend_parse_inflight.clear()
+        with self._lock:
+            for session in self._sessions.values():
+                try:
+                    session.close()
+                except Exception:
+                    pass
+            self._sessions.clear()
+
+    def isVideoFormat(self, url):
+        return bool(self.VIDEO_EXT_RE.search(str(url or "")))
+
+    def manualVideoCheck(self):
+        return False
+
+    def homeContent(self, filter):
+        self._log("home", action="start")
+        self._start_warmup()
+        return {
+            "class": [
+                {"type_id": type_id, "type_name": type_name}
+                for type_id, type_name in self.CATEGORIES
+            ],
+            "filters": {},
+        }
+
+    def homeVideoContent(self):
+        cache_key = ("mv", 1)
+        cache_state, cached, age = self._page_cache_state(cache_key)
+        if cache_state == "fresh":
+            self._record_metric("category_cache_hit")
+            self._log("home-video", state="cache", count=len(cached.get("list", [])))
+            return {"list": cached.get("list", [])}
+        if cache_state == "stale":
+            self._record_metric("category_stale_hit")
+            self._schedule_category_refresh(cache_key, "mv", 1)
+            self._log("home-video", state="stale", age=int(age))
+            return {"list": cached.get("list", [])}
+        self._start_warmup()
+        if not self._warmup_event.is_set():
+            self._warmup_event.wait(self.category_wait_timeout)
+        cached = self._cached_page(("mv", 1))
+        if cached is not None:
+            self._log("home-video", state="warm-cache", count=len(cached.get("list", [])))
+            return {"list": cached.get("list", [])}
+        self._log("home-video", state="foreground")
+        try:
+            page = self._fetch_category_page("mv", 1)
+            return {"list": page.get("list", [])}
+        except Exception as exc:
+            self._diag("home-video", error=str(exc))
+            self._log("home-video", state="error", error=type(exc).__name__)
+            return {"list": []}
+
+    def categoryContent(self, tid, pg, filter, extend):
+        started = time.perf_counter()
+        page = self._page_number(pg)
+        category = str(tid or "mv").strip().strip("/")
+        if category not in self.CATEGORY_NAMES:
+            category = "mv"
+        cache_key = (category, page)
+        cache_state, cached, age = self._page_cache_state(cache_key)
+        if cache_state == "fresh":
+            self._record_metric("category_cache_hit")
+            self._log(
+                "category",
+                state="cache",
+                tid=category,
+                page=page,
+                count=len(cached.get("list", [])),
+            )
+            return cached
+        if cache_state == "stale":
+            self._record_metric("category_stale_hit")
+            self._schedule_category_refresh(cache_key, category, page)
+            self._log(
+                "category",
+                state="stale",
+                tid=category,
+                page=page,
+                age=int(age),
+                count=len(cached.get("list", [])),
+            )
+            return cached
+        self._log("category", state="start", tid=category, page=page)
+        self._start_warmup()
+        if not self._warmup_event.is_set():
+            self._warmup_event.wait(self.category_wait_timeout)
+            cached = self._cached_page(cache_key)
+            if cached is not None:
+                self._log(
+                    "category",
+                    state="warm-cache",
+                    tid=category,
+                    page=page,
+                    count=len(cached.get("list", [])),
+                    elapsed_ms=int((time.perf_counter() - started) * 1000),
+                )
+                return cached
+            if not self._warmup_event.is_set():
+                self._log(
+                    "category",
+                    state="foreground",
+                    tid=category,
+                    page=page,
+                    elapsed_ms=int((time.perf_counter() - started) * 1000),
+                )
+        try:
+            parsed = self._fetch_category_page(category, page)
+            self._log(
+                "category",
+                state="ok",
+                tid=category,
+                page=page,
+                count=len(parsed.get("list", [])),
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
+            return parsed
+        except Exception as exc:
+            self._diag("category", error=str(exc), category=category, page=page)
+            self._log(
+                "category",
+                state="error",
+                tid=category,
+                page=page,
+                error=type(exc).__name__,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
+            return self._empty_page(page, "分类读取失败: %s" % exc)
+
+    def searchContent(self, key, quick, pg="1"):
+        page = self._page_number(pg)
+        keyword = self._clean_text(key)
+        if not keyword:
+            return self._empty_page(page)
+        cache_key = (keyword.lower(), page)
+        cache_state, cached, age = self._search_cache_state(cache_key)
+        if cache_state == "fresh":
+            self._record_metric("search_cache_hit")
+            self._log("search", state="cache", keyword=keyword, page=page)
+            return cached
+        if cache_state == "stale":
+            self._record_metric("search_stale_hit")
+            self._schedule_search_refresh(cache_key, keyword, page)
+            self._log(
+                "search", state="stale", keyword=keyword, page=page, age=int(age)
+            )
+            return cached
+        started = time.perf_counter()
+        try:
+            futures = self._search_futures(cache_key, keyword, page)
+            result = self._select_search_result(futures, page)
+            if result.get("list"):
+                self._remember_search(cache_key, result, 1)
+            self._log(
+                "search",
+                state="ok" if result.get("list") else "empty",
+                keyword=keyword,
+                page=page,
+                count=len(result.get("list", [])),
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
+            return result
+        except Exception as exc:
+            self._diag("search", error=str(exc), keyword=keyword, page=page)
+            return self._empty_page(page, "搜索失败: %s" % exc)
+
+    def _search_executor_instance(self):
+        with self._search_executor_lock:
+            if self._search_executor is None:
+                self._search_executor = ThreadPoolExecutor(max_workers=2)
+            return self._search_executor
+
+    def _search_futures(self, cache_key, keyword, page):
+        with self._search_inflight_lock:
+            current = self._search_inflight.get(cache_key)
+            if current:
+                return current
+            executor = self._search_executor_instance()
+            futures = {
+                executor.submit(self._search_primary, cache_key, keyword, page): "primary"
+            }
+            if page == 1:
+                futures[executor.submit(self._search_suggestion_task, cache_key, keyword, page)] = "suggestion"
+            self._search_inflight[cache_key] = futures
+        for future in futures:
+            future.add_done_callback(
+                lambda _future, key=cache_key, group=futures: self._cleanup_search_inflight(key, group)
+            )
+        return futures
+
+    def _search_primary(self, cache_key, keyword, page):
+        params = {"q": keyword}
+        if page > 1:
+            params["p"] = page
+        source, _ = self._request_text("/search", params=params)
+        parsed = self._parse_search_page(source, page)
+        if parsed.get("list"):
+            self._remember_search(cache_key, parsed, 2)
+        return parsed
+
+    def _search_suggestion_task(self, cache_key, keyword, page):
+        parsed = self._search_suggestions(keyword, page)
+        if parsed.get("list"):
+            self._remember_search(cache_key, parsed, 1)
+        return parsed
+
+    def _select_search_result(self, futures, page):
+        pending = set(futures)
+        best = None
+        deadline = time.perf_counter() + max(8, self.timeout)
+        suggestion_deadline = None
+        while pending:
+            active_deadline = deadline
+            if suggestion_deadline is not None:
+                active_deadline = min(active_deadline, suggestion_deadline)
+            remaining = active_deadline - time.perf_counter()
+            if remaining <= 0:
+                break
+            done, pending = wait(pending, timeout=remaining, return_when=FIRST_COMPLETED)
+            if not done:
+                break
+            for future in done:
+                kind = futures.get(future)
+                try:
+                    result = future.result()
+                except Exception:
+                    continue
+                if not isinstance(result, dict) or not result.get("list"):
+                    continue
+                if kind == "primary":
+                    return result
+                best = result
+                if suggestion_deadline is None:
+                    suggestion_deadline = (
+                        time.perf_counter() + self.search_quality_grace_ms / 1000.0
+                    )
+        return best or self._empty_page(page)
+
+    def _cleanup_search_inflight(self, cache_key, futures):
+        if not all(future.done() for future in futures):
+            return
+        with self._search_inflight_lock:
+            if self._search_inflight.get(cache_key) is futures:
+                self._search_inflight.pop(cache_key, None)
+
+    def _schedule_search_refresh(self, cache_key, keyword, page):
+        self._record_metric("search_refresh")
+        self._search_futures(cache_key, keyword, page)
+
+    def _cached_search(self, cache_key):
+        state, result, _ = self._search_cache_state(cache_key)
+        return result if state == "fresh" else None
+
+    def _search_cache_state(self, cache_key):
+        now = time.time()
+        with self._cache_lock:
+            cached = self._search_cache.get(cache_key)
+            if not cached:
+                return "miss", None, 0
+            age = now - cached[0]
+            if age > self.search_stale_ttl:
+                self._search_cache.pop(cache_key, None)
+                return "miss", None, age
+            self._search_cache.move_to_end(cache_key)
+            state = "fresh" if age <= self.search_cache_ttl else "stale"
+            return state, cached[1], age
+
+    def _remember_search(self, cache_key, result, rank):
+        with self._cache_lock:
+            current = self._search_cache.get(cache_key)
+            if current and int(current[2]) > int(rank):
+                return
+            self._search_cache[cache_key] = (time.time(), result, int(rank))
+            self._search_cache.move_to_end(cache_key)
+            while len(self._search_cache) > self.MAX_CACHE:
+                self._search_cache.popitem(last=False)
+
+    def detailContent(self, ids):
+        raw_id = ids[0] if isinstance(ids, (list, tuple)) and ids else ids
+        value = str(raw_id or "").strip()
+        if value.startswith("atvp_detail:"):
+            value = value[len("atvp_detail:"):].strip()
+        dir_name, item_id = self._decode_vod_id(value)
+        if not dir_name or not item_id:
+            return {"list": []}
+
+        try:
+            source, page_url = self._request_text("/%s/%s" % (dir_name, item_id))
+            metadata = self._parse_detail_metadata(source, dir_name, item_id)
+            resources = self._request_resources(dir_name, item_id)
+            groups, stats = self._build_resource_groups(
+                resources, dir_name, item_id, metadata.get("title") or ""
+            )
+            vod = self._build_detail_vod(metadata, groups, stats, dir_name, item_id)
+            return {"list": [vod]}
+        except Exception as exc:
+            self._diag("detail", error=str(exc), dir=dir_name, id=item_id)
+            return {
+                "list": [
+                    {
+                        "vod_id": self._vod_id(dir_name, item_id),
+                        "vod_name": "资源探测失败",
+                        "vod_pic": self._image(dir_name, item_id, 384),
+                        "vod_content": "详情读取失败: %s" % exc,
+                        "vod_play_from": "诊断",
+                        "vod_play_url": "查看错误$%s" % self._status_id(str(exc)),
+                    }
+                ]
+            }
+
+    def playerContent(self, flag, id, vipFlags):
+        value = str(id or "").strip()
+        if value.startswith(self.STATUS_PREFIX):
+            message = self._decode_status(value)
+            return self._player_error(message)
+        payload = self._unpack(value)
+        if not payload:
+            return self._player_error("无法识别播放资源")
+        kind = payload.get("kind")
+        try:
+            if kind == "pan":
+                return self._play_pan(payload)
+            if kind == "backend":
+                return self._backend_play(str(payload.get("id") or ""))
+            if kind == "online":
+                return self._play_online(payload)
+            if kind == "magnet":
+                return self._play_magnet(payload)
+            return self._player_error("未知资源类型: %s" % kind)
+        except Exception as exc:
+            self._diag("player", error=str(exc), kind=kind)
+            return self._player_error("播放解析失败: %s" % exc)
+
+    def _start_warmup(self):
+        with self._warmup_guard:
+            if self._warmup_started or self._warmup_event.is_set():
+                return
+            self._warmup_started = True
+            generation = self._warmup_generation
+        worker = threading.Thread(
+            target=self._warmup_worker,
+            args=(generation,),
+            name="guanying-warmup",
+        )
+        worker.daemon = True
+        worker.start()
+
+    def _warmup_worker(self, generation):
+        started = time.perf_counter()
+        self._log("warmup", state="start")
+        try:
+            source, _ = self._request_text("/mv", params={"page": 1})
+            parsed = self._parse_list_page(source, "mv", 1)
+            if generation == self._warmup_generation:
+                self._remember_page(("mv", 1), parsed)
+            self._log(
+                "warmup",
+                state="ok",
+                host=self._host or "none",
+                count=len(parsed.get("list", [])),
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
+        except Exception as exc:
+            self._diag("warmup", error=str(exc))
+            self._log(
+                "warmup",
+                state="error",
+                error=type(exc).__name__,
+                elapsed_ms=int((time.perf_counter() - started) * 1000),
+            )
+        finally:
+            with self._warmup_guard:
+                if generation == self._warmup_generation:
+                    self._warmup_event.set()
+            self._start_standby_warmup(generation)
+
+    def _cached_page(self, key):
+        state, value, _ = self._page_cache_state(key)
+        return value if state == "fresh" else None
+
+    def _page_cache_state(self, key):
+        now = time.time()
+        with self._cache_lock:
+            cached = self._page_cache.get(key)
+            if cached is None:
+                return "miss", None, 0
+            if (
+                isinstance(cached, (tuple, list))
+                and len(cached) == 2
+                and isinstance(cached[0], (int, float))
+            ):
+                cached_at, value = cached
+            else:
+                cached_at, value = now, cached
+            age = now - cached_at
+            if age > self.category_stale_ttl:
+                self._page_cache.pop(key, None)
+                return "miss", None, age
+            self._page_cache.move_to_end(key)
+            state = "fresh" if age <= self.category_cache_ttl else "stale"
+            return state, value, age
+
+    def _refresh_executor_instance(self):
+        with self._refresh_executor_lock:
+            if self._refresh_executor is None:
+                self._refresh_executor = ThreadPoolExecutor(max_workers=2)
+            return self._refresh_executor
+
+    def _schedule_category_refresh(self, cache_key, category, page):
+        with self._search_inflight_lock:
+            if cache_key in self._refresh_inflight:
+                return
+            self._refresh_inflight.add(cache_key)
+        self._record_metric("category_refresh")
+        future = self._refresh_executor_instance().submit(
+            self._refresh_category_page, cache_key, category, page
+        )
+        future.add_done_callback(
+            lambda _future, key=cache_key: self._finish_category_refresh(key)
+        )
+
+    def _refresh_category_page(self, cache_key, category, page):
+        try:
+            source, _ = self._request_text("/%s" % category, params={"page": page})
+            parsed = self._parse_list_page(source, category, page)
+            self._remember_page(cache_key, parsed)
+            self._record_metric("category_refresh_ok")
+        except Exception as exc:
+            self._record_metric("category_refresh_error")
+            self._log("category-refresh", state="error", error=type(exc).__name__)
+
+    def _finish_category_refresh(self, cache_key):
+        with self._search_inflight_lock:
+            self._refresh_inflight.discard(cache_key)
+
+    def _fetch_category_page(self, category, page):
+        cache_key = (category, page)
+        cached = self._cached_page(cache_key)
+        if cached is not None:
+            return cached
+        source, _ = self._request_text("/%s" % category, params={"page": page})
+        parsed = self._parse_list_page(source, category, page)
+        self._remember_page(cache_key, parsed)
+        return parsed
+
+    def _request_text(self, path, params=None, retry=True):
+        last_error = None
+        attempts = 2 if retry else 1
+        for _ in range(attempts):
+            try:
+                return self._hedged_site_call(
+                    "text",
+                    lambda host, session: self._get_text_from_host(
+                        host, session, path, params
+                    ),
+                )
+            except Exception as exc:
+                last_error = exc
+        raise RuntimeError(str(last_error or "请求失败"))
+
+    def _get_text_from_host(self, host, session, path, params):
+        url = urljoin(host + "/", str(path or "").lstrip("/"))
+        response = session.get(
+            url,
+            params=params,
+            headers={"Referer": host + "/"},
+            timeout=self.timeout,
+        )
+        if self._is_challenge(response.text) or self._is_login_page(response.text):
+            raise RuntimeError("登录状态失效")
+        response.raise_for_status()
+        response.encoding = response.encoding or "utf-8"
+        return response.text, response.url
+
+    def _request_resources(self, dir_name, item_id, retry=True):
+        key = (dir_name, item_id)
+        with self._cache_lock:
+            cached = self._resource_cache.get(key)
+            if cached is not None:
+                self._resource_cache.move_to_end(key)
+                return cached
+        last_error = None
+        attempts = 2 if retry else 1
+        data = None
+        for _ in range(attempts):
+            try:
+                data = self._hedged_site_call(
+                    "resources",
+                    lambda host, session: self._get_resources_from_host(
+                        host, session, dir_name, item_id
+                    ),
+                )
+                break
+            except Exception as exc:
+                last_error = exc
+        if data is None:
+            raise RuntimeError(str(last_error or "资源请求失败"))
+        with self._cache_lock:
+            self._resource_cache[key] = data
+            self._resource_cache.move_to_end(key)
+            while len(self._resource_cache) > self.MAX_CACHE:
+                self._resource_cache.popitem(last=False)
+        return data
+
+    def _get_resources_from_host(self, host, session, dir_name, item_id):
+        url = "%s/res/downurl/%s/%s" % (host, quote(dir_name), quote(item_id))
+        response = session.get(
+            url,
+            headers={
+                "Referer": "%s/%s/%s" % (host, dir_name, item_id),
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            timeout=self.timeout,
+        )
+        if self._is_challenge(response.text) or self._is_login_page(response.text):
+            raise RuntimeError("资源接口要求重新登录")
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, dict) or int(data.get("code") or 0) != 200:
+            raise RuntimeError(str(data.get("msg") or "资源接口返回异常"))
+        self._validate_resource_payload(data)
+        return data
+
+    def _hedge_executor_instance(self):
+        with self._hedge_executor_lock:
+            if self._hedge_executor is None:
+                # Search can issue a primary and suggestion request together;
+                # four workers leave room for one delayed mirror per request.
+                self._hedge_executor = ThreadPoolExecutor(max_workers=4)
+            return self._hedge_executor
+
+    def _hedged_site_call(self, action, operation):
+        primary_host, primary_session = self._client()
+        alternate = self._ready_alternate_client(primary_host)
+        started = time.perf_counter()
+        if not self.enable_hedged_requests or alternate is None:
+            try:
+                result = operation(primary_host, primary_session)
+                self._record_metric("site_request_ok", elapsed_ms=self._elapsed_ms(started))
+                return result
+            except Exception:
+                self._record_metric("site_request_error")
+                self._invalidate_host(primary_host)
+                raise
+
+        executor = self._hedge_executor_instance()
+        primary_future = executor.submit(operation, primary_host, primary_session)
+        done, pending = wait(
+            {primary_future},
+            timeout=self.hedge_delay_ms / 1000.0,
+            return_when=FIRST_COMPLETED,
+        )
+        errors = []
+        if done:
+            try:
+                result = primary_future.result()
+                self._record_metric("hedge_primary_fast")
+                self._record_metric("site_request_ok", elapsed_ms=self._elapsed_ms(started))
+                return result
+            except Exception as exc:
+                errors.append(exc)
+                self._invalidate_host(primary_host)
+
+        alternate_host, alternate_session = alternate
+        self._record_metric("hedge_launched")
+        self._log("mirror-hedge", state="launched", action=action)
+        alternate_future = executor.submit(operation, alternate_host, alternate_session)
+        future_hosts = {
+            primary_future: primary_host,
+            alternate_future: alternate_host,
+        }
+        pending = {future for future in future_hosts if not future.done()}
+        if primary_future.done() and not done:
+            pending.add(primary_future)
+        deadline = time.perf_counter() + max(self.timeout + 2, 10)
+        while pending:
+            remaining = deadline - time.perf_counter()
+            if remaining <= 0:
+                break
+            completed, pending = wait(
+                pending, timeout=remaining, return_when=FIRST_COMPLETED
+            )
+            if not completed:
+                break
+            for future in completed:
+                host = future_hosts[future]
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    errors.append(exc)
+                    self._invalidate_host(host)
+                    continue
+                self._activate_host(host)
+                metric = "hedge_primary_win" if host == primary_host else "hedge_mirror_win"
+                self._record_metric(metric)
+                self._record_metric("site_request_ok", elapsed_ms=self._elapsed_ms(started))
+                for other in pending:
+                    other.cancel()
+                self._log("mirror-hedge", state="winner", action=action, mirror=int(host != primary_host))
+                return result
+        self._record_metric("site_request_error")
+        raise errors[-1] if errors else RuntimeError("镜像竞速请求超时")
+
+    def _ready_alternate_client(self, primary_host):
+        with self._lock:
+            ordered = []
+            for item in self._last_candidates:
+                if len(item) >= 3:
+                    ordered.append(item[2])
+            ordered.extend(self._sessions)
+            for host in ordered:
+                normalized = self._normalize_host(host)
+                if (
+                    not normalized
+                    or normalized == primary_host
+                    or self._host_in_cooldown(normalized)
+                ):
+                    continue
+                session = self._sessions.get(normalized)
+                if session is not None:
+                    return normalized, session
+        return None
+
+    def _activate_host(self, host):
+        normalized = self._normalize_host(host)
+        if not normalized:
+            return
+        with self._lock:
+            self._host = normalized
+            self._host_checked_at = time.time()
+
+    def _client(self):
+        with self._lock:
+            force_probe = self.probe_each_request
+            expired = time.time() - self._host_checked_at >= self.probe_ttl
+            if not self._host or force_probe or expired:
+                self._select_host()
+            last_error = None
+            for _ in range(3):
+                host = self._host
+                if not host:
+                    self._select_host()
+                    host = self._host
+                session = self._sessions.get(host)
+                if session is None:
+                    try:
+                        session = self._authenticate(host)
+                    except Exception as exc:
+                        last_error = exc
+                        self._invalidate_host(host)
+                        self._select_host()
+                        continue
+                    self._sessions[host] = session
+                    self._session_times[host] = time.time()
+                return host, session
+            raise RuntimeError(str(last_error or "没有可用镜像"))
+
+    def _start_standby_warmup(self, generation):
+        if not self.enable_hedged_requests or not self.warm_standby_mirror:
+            return
+        with self._standby_lock:
+            if generation != self._warmup_generation or self._standby_generation == generation:
+                return
+            self._standby_generation = generation
+        worker = threading.Thread(
+            target=self._standby_warmup_worker,
+            args=(generation,),
+            name="guanying-standby-mirror",
+        )
+        worker.daemon = True
+        worker.start()
+
+    def _standby_warmup_worker(self, generation):
+        with self._lock:
+            current = self._host
+            candidates = [
+                item[2] for item in self._last_candidates if len(item) >= 3
+            ]
+        if not candidates:
+            try:
+                discovered = [
+                    item for item in self._discover_candidates()
+                    if not self._host_in_cooldown(item[1])
+                ][: self.max_probe_hosts]
+                checked = []
+                if discovered:
+                    workers = min(self.max_probe_hosts, len(discovered))
+                    with ThreadPoolExecutor(max_workers=workers) as executor:
+                        futures = {
+                            executor.submit(self._probe_host, host, declared): (declared, host)
+                            for declared, host in discovered
+                        }
+                        for future in as_completed(futures):
+                            declared, host = futures[future]
+                            latency = future.result()
+                            if latency is not None:
+                                checked.append((declared, latency, host))
+                checked.sort(key=lambda item: (item[1], item[0]))
+                candidates = [item[2] for item in checked]
+                if checked:
+                    with self._lock:
+                        if not self._last_candidates:
+                            self._last_candidates = checked
+            except Exception as exc:
+                self._log("standby-mirror", state="discover-error", error=type(exc).__name__)
+        for host in candidates:
+            normalized = self._normalize_host(host)
+            if (
+                not normalized
+                or normalized == current
+                or self._host_in_cooldown(normalized)
+            ):
+                continue
+            with self._lock:
+                if normalized in self._sessions:
+                    return
+            session = None
+            try:
+                session = self._authenticate(normalized)
+                with self._warmup_guard:
+                    active = generation == self._warmup_generation
+                if not active:
+                    session.close()
+                    return
+                with self._lock:
+                    existing = self._sessions.get(normalized)
+                    if existing is None:
+                        self._sessions[normalized] = session
+                        self._session_times[normalized] = time.time()
+                        session = None
+                self._record_metric("standby_mirror_ready")
+                self._log("standby-mirror", state="ready")
+                return
+            except Exception as exc:
+                self._mark_host_failed(normalized)
+                self._log("standby-mirror", state="error", error=type(exc).__name__)
+            finally:
+                if session is not None:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+
+    def _select_host(self):
+        started = time.perf_counter()
+        candidates = self._discover_candidates()
+        if not candidates:
+            raise RuntimeError("发布页没有可用镜像")
+        now = time.time()
+        eligible = [
+            item for item in candidates
+            if not self._host_in_cooldown(item[1], now)
+        ]
+        if not eligible:
+            self._failed_hosts.clear()
+            self._failed_until.clear()
+            eligible = candidates
+        checked = []
+        workers = min(self.max_probe_hosts, len(eligible))
+        with ThreadPoolExecutor(max_workers=workers) as executor:
+            futures = {
+                executor.submit(self._probe_host, host, declared): (declared, host)
+                for declared, host in eligible[: self.max_probe_hosts]
+            }
+            for future in as_completed(futures):
+                declared, host = futures[future]
+                result = future.result()
+                if result is None:
+                    self._mark_host_failed(host)
+                    continue
+                checked.append((declared, result, host))
+        checked.sort(key=lambda item: (item[1], item[0]))
+        selected = checked[0][2] if checked else None
+        # Keep a healthy current line when it is close to the fastest result;
+        # this avoids throwing away a logged-in session on small jitter.
+        if self._host:
+            current = next((item for item in checked if item[2] == self._host), None)
+            if current and selected and current[1] <= checked[0][1] * 1.35 + 80:
+                selected = self._host
+        if not selected:
+            selected = eligible[0][1]
+        if selected != self._host:
+            self._host = selected
+        self._host_checked_at = time.time()
+        self._last_candidates = checked or [(latency, 0, host) for latency, host in candidates]
+        self._diag("host", host=selected, candidates=self._last_candidates[:10])
+        self._log(
+            "host",
+            state="selected",
+            host=selected,
+            reachable=len(checked),
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+        )
+
+    def _probe_host(self, host, declared_latency=99999):
+        started = time.perf_counter()
+        session = self._new_session()
+        try:
+            response = session.get(
+                host + "/",
+                timeout=self.probe_timeout,
+                allow_redirects=True,
+            )
+            if response.status_code >= 500:
+                return None
+            return max(1, int((time.perf_counter() - started) * 1000))
+        except Exception:
+            return None
+        finally:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def _discover_candidates(self):
+        result = []
+        pages = list(self.address_pages or [self.address_page])
+        remote_config = self._load_mirror_config()
+        pages.extend(remote_config.get("pages") or [])
+        errors = []
+        for page in self._http_url_list(pages):
+            try:
+                session = self._new_session()
+                response = session.get(
+                    page,
+                    timeout=self.probe_timeout,
+                    allow_redirects=True,
+                )
+                response.raise_for_status()
+                response.encoding = response.encoding or "utf-8"
+                source = response.text
+                final_url = response.url
+                refresh = re.search(
+                    r"http-equiv=['\"]refresh['\"][^>]+content=['\"][^;]+;\s*url=([^'\">]+)",
+                    source,
+                    re.I,
+                )
+                if refresh:
+                    target = urljoin(final_url, html_lib.unescape(refresh.group(1).strip()))
+                    response = session.get(target, timeout=self.probe_timeout + 5)
+                    response.raise_for_status()
+                    response.encoding = response.encoding or "utf-8"
+                    source = response.text
+                    final_url = response.url
+                result.extend(self._parse_publish_page(source, final_url))
+                session.close()
+            except Exception as exc:
+                errors.append("%s: %s" % (page, exc))
+        fallback_hosts = self._url_list(
+            list(self.fallback_hosts) + list(remote_config.get("hosts") or [])
+        )
+        known = [(99999 + index, host) for index, host in enumerate(fallback_hosts)]
+        if result:
+            merged = self._dedupe_candidates(result + known)
+            with self._cache_lock:
+                self._candidate_cache = merged
+                self._candidate_cached_at = time.time()
+            return merged
+        with self._cache_lock:
+            cached = list(self._candidate_cache)
+            cached_at = self._candidate_cached_at
+        if cached and time.time() - cached_at < 86400:
+            self._diag("publish-cache", age=int(time.time() - cached_at), errors=errors[:3])
+            return self._dedupe_candidates(cached + known)
+        self._diag("publish", error="; ".join(errors[:3]))
+        return known
+
+    def _load_mirror_config(self):
+        if not self.mirror_config_url:
+            return {"pages": [], "hosts": []}
+        try:
+            session = self._new_session()
+            response = session.get(self.mirror_config_url, timeout=self.probe_timeout)
+            response.raise_for_status()
+            data = response.json()
+            session.close()
+            if isinstance(data, list):
+                return {"pages": [], "hosts": self._url_list(data)}
+            if isinstance(data, dict):
+                return {
+                    "pages": self._http_url_list(data.get("pages") or data.get("address_pages") or []),
+                    "hosts": self._url_list(data.get("hosts") or data.get("fallback_hosts") or []),
+                }
+        except Exception as exc:
+            self._diag("mirror-config", error=str(exc))
+        return {"pages": [], "hosts": []}
+
+    def _parse_publish_page(self, source, page_url):
+        try:
+            document = html.fromstring(source)
+            document.make_links_absolute(page_url)
+        except Exception:
+            return []
+        candidates = []
+        for anchor in document.xpath("//a[@href]"):
+            href = self._normalize_host(anchor.get("href"))
+            text = self._clean_text(anchor.text_content())
+            if not href or "无法访问" in text or "不可访问" in text:
+                continue
+            match = re.search(r"(\d+)\s*ms", text, re.I)
+            latency = int(match.group(1)) if match else 99990
+            candidates.append((latency, href))
+        candidates.sort(key=lambda item: item[0])
+        return candidates
+
+    def _authenticate(self, host):
+        if not self.username or not self.password:
+            raise RuntimeError("未配置站点登录账号")
+        started = time.perf_counter()
+        self._log("auth", state="start", host=host)
+        session = self._new_session()
+        session.headers.update(dict(self.headers))
+        session.get(host + "/", timeout=self.timeout)
+        self._solve_pow(session, host)
+        payload = {
+            "code": "",
+            "siteid": "1",
+            "dosubmit": "1",
+            "cookietime": "10506240",
+            "username": self.username,
+            "password": self.password,
+        }
+        response = session.post(
+            host + "/user/login",
+            data=payload,
+            headers={
+                "Referer": host + "/user/login",
+                "X-Requested-With": "XMLHttpRequest",
+                "Accept": "application/json",
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
+        try:
+            result = response.json()
+        except Exception as exc:
+            raise RuntimeError("登录接口不是 JSON: %s" % exc)
+        if int(result.get("code") or 0) != 200:
+            raise RuntimeError(str(result.get("msg") or "登录失败"))
+        self._log(
+            "auth",
+            state="ok",
+            host=host,
+            elapsed_ms=int((time.perf_counter() - started) * 1000),
+        )
+        return session
+
+    def _new_session(self):
+        session = requests.Session()
+        # Reachability must be measured from the container itself, not through
+        # a desktop proxy inherited from HTTP(S)_PROXY environment variables.
+        session.trust_env = not self.direct_only
+        session.headers.update(dict(self.headers))
+        return session
+
+    def _backend_session(self):
+        """Reuse one HTTP connection per worker thread for parse/play calls."""
+        thread_id = threading.get_ident()
+        with self._backend_session_lock:
+            session = self._backend_sessions.get(thread_id)
+            if session is None:
+                session = self._new_session()
+                self._backend_sessions[thread_id] = session
+            return session
+
+    def _close_backend_sessions(self):
+        with self._backend_session_lock:
+            sessions = list(self._backend_sessions.values())
+            self._backend_sessions.clear()
+        for session in sessions:
+            try:
+                session.close()
+            except Exception:
+                pass
+
+    def _solve_pow(self, session, host):
+        response = session.get(host + "/res/pow", timeout=self.timeout)
+        response.raise_for_status()
+        challenge = response.json()
+        modulus = int(str(challenge["N"]), 16)
+        value = int(str(challenge["x"]), 16)
+        steps = int(challenge["t"])
+        if steps < 1 or steps > 2000000:
+            raise RuntimeError("PoW 步数异常: %s" % steps)
+        started = time.perf_counter()
+        for _ in range(steps):
+            value = (value * value) % modulus
+        elapsed = time.perf_counter() - started
+        if elapsed < 3:
+            time.sleep(3 - elapsed)
+        verify = session.post(
+            host + "/res/pow",
+            data={"y": format(value, "x")},
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+            timeout=self.timeout,
+        )
+        verify.raise_for_status()
+        data = verify.json()
+        if not data.get("success"):
+            raise RuntimeError("浏览器计算验证失败")
+
+    def _invalidate_host(self, host):
+        with self._lock:
+            normalized = self._normalize_host(host)
+            if normalized:
+                self._mark_host_failed(normalized)
+                session = self._sessions.pop(normalized, None)
+                if session:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+            if self._host == normalized:
+                self._host = ""
+                self._host_checked_at = 0.0
+
+    def _mark_host_failed(self, host):
+        normalized = self._normalize_host(host)
+        if not normalized:
+            return
+        key = normalized.lower()
+        self._failed_hosts.add(key)
+        self._failed_until[key] = time.time() + self.host_fail_cooldown
+
+    def _host_in_cooldown(self, host, now=None):
+        key = self._normalize_host(host).lower()
+        if not key:
+            return True
+        until = self._failed_until.get(key, 0)
+        if until and (now or time.time()) >= until:
+            self._failed_until.pop(key, None)
+            self._failed_hosts.discard(key)
+            return False
+        return until > (now or time.time())
+
+    def _parse_list_page(self, source, category, page):
+        data = self._extract_obj(source, "inlist")
+        if not isinstance(data, dict):
+            raise RuntimeError("未找到列表数据")
+        page_data = self._extract_obj(source, "page") or {}
+        ids = self._array(data, "i", "id", "ids")
+        titles = self._array(data, "t", "title", "titles")
+        dirs = self._array(data, "d", "dir", "dirs")
+        qualities = self._array(data, "q", "quality", "qualities")
+        magnet_counts = self._array(data, "b", "bt", "magnet")
+        pan_counts = self._array(data, "w", "pan")
+        online_counts = self._array(data, "z", "play", "online")
+        default_dir = str(data.get("ty") or category.split("/")[-1])
+        videos = []
+        for index, item_id in enumerate(ids):
+            title = self._at(titles, index, "")
+            dir_name = self._at(dirs, index, default_dir)
+            if dir_name not in ("mv", "tv", "ac"):
+                dir_name = default_dir if default_dir in ("mv", "tv", "ac") else "mv"
+            quality = self._at(qualities, index, [])
+            remark = self._resource_remark(
+                quality,
+                self._at(magnet_counts, index, 0),
+                self._at(pan_counts, index, 0),
+                self._at(online_counts, index, 0),
+            )
+            if not item_id or not title:
+                continue
+            videos.append(
+                self._vod_card(
+                    dir_name,
+                    item_id,
+                    self._clean_text(title),
+                    self._image(dir_name, item_id),
+                    remark,
+                )
+            )
+        pagecount = self._bounded_int(page_data.get("pages"), page, page, 10000)
+        return {
+            "list": videos,
+            "page": page,
+            "pagecount": pagecount,
+            "limit": len(videos) or 48,
+            "total": pagecount * (len(videos) or 48),
+        }
+
+    def _parse_search_page(self, source, page):
+        page_data = self._extract_obj(source, "page") or {}
+        assignments = self._extract_all_objs(source)
+        data = None
+        for key, value in assignments.items():
+            if key in ("header", "page", "footer") or not isinstance(value, dict):
+                continue
+            candidates = [value]
+            nested = value.get("l")
+            if isinstance(nested, dict):
+                candidates.insert(0, nested)
+            for candidate in candidates:
+                if self._array(candidate, "i", "id", "ids") and self._array(
+                    candidate, "title", "t", "titles"
+                ):
+                    data = candidate
+                    break
+            if data is not None:
+                break
+        if not data:
+            return self._empty_page(page)
+        ids = self._array(data, "i", "id", "ids")
+        titles = self._array(data, "title", "t", "titles")
+        dirs = self._array(data, "d", "dir", "dirs")
+        years = self._array(data, "year", "years")
+        infos = self._array(data, "info", "infos")
+        videos = []
+        for index, item_id in enumerate(ids):
+            dir_name = str(self._at(dirs, index, "mv"))
+            if dir_name not in ("mv", "tv", "ac"):
+                dir_name = "mv"
+            title = self._clean_text(self._at(titles, index, ""))
+            if not item_id or not title:
+                continue
+            year = self._at(years, index, "")
+            info = self._clean_text(self._at(infos, index, ""))
+            remark = " / ".join([str(v) for v in (year, info) if v])[:80]
+            videos.append(
+                self._vod_card(
+                    dir_name,
+                    item_id,
+                    title,
+                    self._image(dir_name, item_id),
+                    remark,
+                )
+            )
+        pagecount = self._bounded_int(page_data.get("pages"), page, page, 10000)
+        return {
+            "list": videos,
+            "page": page,
+            "pagecount": pagecount,
+            "limit": len(videos) or 25,
+            "total": pagecount * (len(videos) or 25),
+        }
+
+    def _search_suggestions(self, keyword, page=1):
+        host, session = self._client()
+        response = session.get(
+            host + "/res/search_suggest",
+            params={"q": keyword},
+            headers={
+                "Referer": host + "/",
+                "Accept": "application/json",
+                "X-Requested-With": "XMLHttpRequest",
+            },
+            timeout=self.timeout,
+        )
+        if self._is_challenge(response.text) or self._is_login_page(response.text):
+            raise RuntimeError("搜索联想接口要求重新登录")
+        response.raise_for_status()
+        data = response.json()
+        if not isinstance(data, list):
+            return self._empty_page(page)
+        videos = []
+        seen = set()
+        for item in data:
+            if not isinstance(item, dict):
+                continue
+            item_id = str(item.get("id") or "").strip()
+            title = self._clean_text(item.get("title") or "")
+            dir_name = str(item.get("dir") or "mv").strip()
+            if dir_name not in ("mv", "tv", "ac"):
+                dir_name = "mv"
+            marker = (dir_name, item_id)
+            if not item_id or not title or marker in seen:
+                continue
+            seen.add(marker)
+            remark = " / ".join(
+                value
+                for value in (
+                    self._clean_text(item.get("year") or ""),
+                    self._clean_text(item.get("type") or ""),
+                )
+                if value
+            )[:80]
+            videos.append(
+                self._vod_card(
+                    dir_name,
+                    item_id,
+                    title,
+                    self._image(dir_name, item_id),
+                    remark,
+                )
+            )
+        return {
+            "list": videos,
+            "page": page,
+            "pagecount": page,
+            "limit": len(videos) or 25,
+            "total": len(videos),
+        }
+
+    def _parse_detail_metadata(self, source, dir_name, item_id):
+        data = self._extract_obj(source, "d")
+        if not isinstance(data, dict):
+            raise RuntimeError("未找到详情元数据")
+        title = self._clean_text(data.get("title") or "未知影片")
+        year = str(data.get("year") or "")
+        actors = self._join_text(data.get("zhuyan"))
+        directors = self._join_text(data.get("daoyan"))
+        genres = self._join_text(data.get("leixing"))
+        areas = self._join_text(data.get("diqu"))
+        remarks = self._clean_text(re.sub(r"<[^>]+>", "", str(data.get("status") or "")))
+        content = self._clean_text(data.get("summary") or "")
+        return {
+            "title": title,
+            "year": year,
+            "actors": actors,
+            "directors": directors,
+            "genres": genres,
+            "areas": areas,
+            "remarks": remarks,
+            "content": content,
+            "pic": self._image(dir_name, item_id, 384),
+        }
+
+    def _build_resource_groups(self, data, dir_name, item_id, title=""):
+        groups = []
+        magnets = self._extract_magnets(data.get("downlist") or {}, dir_name, item_id)
+        raw_magnet_count = len(magnets)
+        magnet_episodes_expanded = False
+        online = self._extract_online(data.get("playlist") or [], dir_name, item_id)
+        if not self.enable_online_sources:
+            online = []
+        online_limit = self._online_episode_limit(online)
+        if magnets and online_limit and online_limit > 1:
+            magnets = self._expand_magnet_episodes(
+                magnets, self._season_number(title), online_limit
+            )
+            magnet_episodes_expanded = True
+        pans = self._extract_pans(
+            data.get("panlist") or {}, dir_name, item_id, online_limit
+        )
+        pans = {
+            provider: items
+            for provider, items in pans.items()
+            if self._provider_allowed(provider)
+        }
+        pan_progress = {"ready": 0, "pending": 0, "total": 0}
+        if self.expand_pan_playlists and dir_name in ("tv", "ac"):
+            pans, pan_progress = self._expand_pan_groups(
+                pans, self._season_number(title), online_limit
+            )
+
+        magnet_group = None
+        if magnets:
+            magnet_group = (
+                "磁力资源",
+                magnets if magnet_episodes_expanded else magnets[: self.max_magnets],
+            )
+        elif self.show_empty_magnet_group:
+            magnet_group = (
+                "磁力资源",
+                [("本片暂无磁力资源", self._status_id("本片暂无磁力资源"))],
+            )
+        providers = list(self.PROVIDER_ORDER)
+        providers.extend(sorted(name for name in pans if name not in providers))
+        for provider in providers:
+            items = pans.get(provider) or []
+            if items:
+                groups.append((provider, items[: self.max_per_pan]))
+        if magnet_group:
+            groups.append(magnet_group)
+        for name, items in online[: self.max_online_groups]:
+            groups.append((name, items))
+
+        stats = {
+            "magnet": raw_magnet_count,
+            "pan": sum(len(items) for items in pans.values()),
+            "online": sum(len(items) for _, items in online),
+            "groups": len(groups),
+            "pan_ready": pan_progress.get("ready", 0),
+            "pan_pending": pan_progress.get("pending", 0),
+            "pan_total": pan_progress.get("total", 0),
+        }
+        if not groups:
+            groups.append(("诊断", [("未探测到可用资源", self._status_id("资源接口为空"))]))
+        return groups, stats
+
+    def _extract_magnets(self, downlist, dir_name, item_id):
+        listing = downlist.get("list") if isinstance(downlist, dict) else {}
+        if not isinstance(listing, dict):
+            return []
+        magnets = self._array(listing, "m", "magnet", "hash")
+        titles = self._array(listing, "t", "title", "name")
+        sizes = self._array(listing, "s", "size")
+        seeds = self._array(listing, "e", "seeds")
+        seen = set()
+        items = []
+        for index, raw in enumerate(magnets):
+            magnet = self._normalize_magnet(str(raw or ""), self._at(titles, index, ""))
+            info_hash = self._btih(magnet)
+            if not magnet or not info_hash or info_hash in seen:
+                continue
+            seen.add(info_hash)
+            title = self._clean_text(self._at(titles, index, "磁力%s" % info_hash[:8]))
+            size = self._clean_text(self._at(sizes, index, ""))
+            seed = self._safe_int(self._at(seeds, index, 0))
+            label = self._safe_label(title)
+            if size:
+                label = self._safe_label("%s [%sB]" % (label, size))
+            if seed > 0:
+                label = self._safe_label("%s 种%s" % (label, seed))
+            payload = {
+                "kind": "magnet",
+                "magnet": magnet,
+            }
+            items.append(
+                {
+                    "label": label,
+                    "id": self._pack(payload),
+                    "subtitle": bool(self.SUBTITLE_RE.search(title)),
+                    "quality": self._quality_score(title),
+                    "negative": bool(self.NEGATIVE_RE.search(title)),
+                    "seeds": seed,
+                    "size": self._size_bytes(size),
+                    "order": index,
+                }
+            )
+        items.sort(
+            key=lambda item: (
+                1 if item["subtitle"] else 0,
+                0 if item["negative"] else 1,
+                item["quality"],
+                item["seeds"],
+                item["size"],
+                -item["order"],
+            ),
+            reverse=True,
+        )
+        return [(item["label"], item["id"]) for item in items]
+
+    def _extract_pans(self, panlist, dir_name, item_id, episode_limit=None):
+        if not isinstance(panlist, dict):
+            return {}
+        urls = self._array(panlist, "url", "urls")
+        names = self._array(panlist, "name", "title", "titles")
+        passwords = self._array(panlist, "p", "password", "pwd")
+        types = self._array(panlist, "type", "types")
+        times = self._array(panlist, "time", "times")
+        type_names = self._array(panlist, "tname", "type_name", "type_names")
+        groups = {name: [] for name in self.PROVIDER_ORDER}
+        seen = set()
+        for index, raw_url in enumerate(urls):
+            url = html_lib.unescape(str(raw_url or "")).strip()
+            if not url.startswith(("http://", "https://")):
+                continue
+            normalized = url.rstrip("#")
+            if normalized in seen:
+                continue
+            seen.add(normalized)
+            name = self._clean_text(self._at(names, index, "网盘资源"))
+            password = self._clean_text(self._at(passwords, index, ""))
+            provider = self._provider_name(
+                url,
+                self._at(types, index, None),
+                type_names,
+            )
+            label = self._safe_label(name)
+            if password and password.lower() not in url.lower():
+                label = self._safe_label("%s 提取码:%s" % (label, password))
+            high_bitrate = bool(
+                re.search(r"高码(?:率)?|REMUX|BluRay|BDREMUX|WEB[- .]?DL", name, re.I)
+            )
+            quality = self._quality_score(name)
+            size = self._size_bytes(name)
+            declared_episodes = self._declared_episode_count(name)
+            final_url = self._append_pan_password(url, password)
+            if not self._pan_link_available(final_url):
+                continue
+            profile = {
+                "url": final_url,
+                "episode_count": declared_episodes,
+                "quality": quality,
+                "high_bitrate": high_bitrate,
+                "max_size": size,
+            }
+            payload = {
+                "kind": "pan",
+                "url": final_url,
+                "provider": provider,
+                "profile": profile,
+            }
+            groups.setdefault(provider, []).append(
+                {
+                    "label": label,
+                    "id": self._pack(payload),
+                    "subtitle": bool(self.SUBTITLE_RE.search(name)),
+                    "high_bitrate": high_bitrate,
+                    "quality": quality,
+                    "size": size,
+                    "episode_count": declared_episodes,
+                    "negative": bool(self.NEGATIVE_RE.search(name)),
+                    "time": self._time_score(self._at(times, index, "")),
+                    "order": index,
+                }
+            )
+        for provider, items in groups.items():
+            items.sort(
+                key=lambda item: (
+                    0 if item["negative"] else 1,
+                    1 if item["high_bitrate"] else 0,
+                    item["quality"],
+                    1 if episode_limit and item["episode_count"] >= episode_limit else 0,
+                    item["episode_count"],
+                    item["size"],
+                    1 if item["subtitle"] else 0,
+                    item["time"],
+                    -item["order"],
+                ),
+                reverse=True,
+            )
+            groups[provider] = [(item["label"], item["id"]) for item in items]
+        return groups
+
+    def _declared_episode_count(self, value):
+        text = self._clean_text(value)
+        counts = []
+        for pattern in (
+            r"(?:全|共)?\s*(\d{1,3})\s*集",
+            r"(?:第?\s*)?\d{1,3}\s*[-~至到]\s*(\d{1,3})(?:\s*集)?",
+            r"(?:EP?|E)\s*0*1\s*[-~至到]\s*(?:EP?|E)?\s*0*(\d{1,3})",
+        ):
+            counts.extend(int(match) for match in re.findall(pattern, text, re.I))
+        return max((count for count in counts if 0 < count <= 500), default=0)
+
+    def _append_pan_password(self, url, password):
+        value = str(url or "").strip()
+        pwd = self._clean_text(password)
+        if not value or not pwd:
+            return value
+        parts = urlsplit(value)
+        query = parse_qsl(parts.query, keep_blank_values=True)
+        if any(key.lower() in ("pwd", "password", "passcode", "code") for key, _ in query):
+            return value
+        query.append(("pwd", pwd))
+        return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(query), parts.fragment))
+
+    def _expand_magnet_episodes(self, items, target_season, episode_limit):
+        magnets = []
+        for _, packed_id in items:
+            payload = self._unpack(packed_id) or {}
+            magnet = self._normalize_magnet(payload.get("magnet"))
+            if magnet and magnet not in magnets:
+                magnets.append(magnet)
+            if len(magnets) >= self.magnet_fallback_links:
+                break
+        if not magnets:
+            return items
+        expanded = []
+        for episode in range(1, min(500, episode_limit) + 1):
+            payload = {
+                "kind": "magnet",
+                "magnet": magnets[0],
+                "magnets": magnets,
+                "season": target_season,
+                "episode": episode,
+                "episode_limit": episode_limit,
+            }
+            expanded.append(("第%s集" % episode, self._pack(payload)))
+        return expanded
+
+    def _online_episode_limit(self, online):
+        limit = 0
+        for _, items in online or []:
+            for _, packed_id in items:
+                payload = self._unpack(packed_id) or {}
+                limit = max(limit, self._safe_int(payload.get("episode")))
+        return limit or None
+
+    def _expand_pan_groups(self, pans, target_season=None, episode_limit=None):
+        if not pans or not self.alist_api or not self.alist_token:
+            return pans, {"ready": 0, "pending": 0, "total": len(pans or {})}
+        provider_jobs = []
+        for provider in self.PROVIDER_ORDER + tuple(sorted(pans)):
+            if not self._provider_allowed(provider):
+                continue
+            items = pans.get(provider) or []
+            if not items or any(name == provider for name, _ in provider_jobs):
+                continue
+            urls = []
+            for label, packed_id in items:
+                payload = self._unpack(packed_id)
+                url = str((payload or {}).get("url") or "")
+                if url and url not in urls:
+                    urls.append(url)
+                if len(urls) >= self.pan_expand_attempts:
+                    break
+            if urls:
+                provider_jobs.append((provider, urls))
+        if not provider_jobs:
+            return {}, {"ready": 0, "pending": 0, "total": 0}
+        _, dynamic_job_limit = self._pan_prewarm_limits(len(provider_jobs))
+
+        provider_candidates = {}
+        missing = []
+        for provider, urls in provider_jobs:
+            for url in urls:
+                found, candidates = self._cached_backend_candidates(url)
+                if found and candidates:
+                    provider_candidates.setdefault(provider, []).extend(
+                        dict(candidate, _resource_url=url) for candidate in candidates
+                    )
+                else:
+                    if not found:
+                        missing.append((provider, url))
+
+        # Detail must remain a cheap, lazy operation.  A cached parse can enrich
+        # the labels immediately, but a cache miss is always scheduled in the
+        # background; doing the first /parse synchronously makes the client wait
+        # on every detail entry and encourages it to auto-select the first item.
+        missing_set = set(missing)
+        background_jobs = []
+        for candidate_index in range(self.pan_expand_attempts):
+            for provider, urls in provider_jobs:
+                if candidate_index >= len(urls):
+                    continue
+                job = (provider, urls[candidate_index])
+                if job in missing_set:
+                    background_jobs.append(job)
+                if len(background_jobs) >= dynamic_job_limit:
+                    break
+            if len(background_jobs) >= dynamic_job_limit:
+                break
+        self._schedule_pan_background(background_jobs)
+
+        result = {}
+        ready = 0
+        for provider, urls in provider_jobs:
+            episode_map = self._episode_candidates(
+                provider_candidates.get(provider) or [], target_season, episode_limit
+            )
+            if episode_map:
+                ready += 1
+                items = []
+                for episode in sorted(episode_map):
+                    candidate = episode_map[episode]
+                    quality = self._quality_label(candidate.get("name"))
+                    label = "第%s集%s" % (episode, (" · " + quality) if quality else "")
+                    resource_url = str(candidate.get("_resource_url") or "").strip()
+                    raw_items = pans.get(provider) or []
+                    lazy_payload = self._lazy_pan_payload(
+                        raw_items,
+                        resource_url,
+                        target_season,
+                        episode,
+                        episode_limit,
+                    )
+                    items.append(
+                        (
+                            self._safe_label(label),
+                            self._pack(lazy_payload),
+                        )
+                    )
+                result[provider] = items
+                continue
+            raw_items = pans.get(provider) or []
+            if raw_items and episode_limit and episode_limit <= 500:
+                placeholders = []
+                for episode in range(1, episode_limit + 1):
+                    episode_payload = self._lazy_pan_payload(
+                        raw_items,
+                        "",
+                        target_season,
+                        episode,
+                        episode_limit,
+                    )
+                    # Keep the explicit assignment visible to raw ATVP
+                    # compatibility tooling and preserve the selected slot.
+                    episode_payload["episode"] = episode
+                    placeholders.append(
+                        (
+                            "第%s集" % episode,
+                            self._pack(episode_payload),
+                        )
+                    )
+                result[provider] = placeholders
+        total = len(provider_jobs)
+        progress = {"ready": ready, "pending": max(0, total - ready), "total": total}
+        self._log("pan-progress", **progress)
+        return result, progress
+
+    def _lazy_pan_payload(
+        self, raw_items, preferred_url, target_season, episode, episode_limit
+    ):
+        payloads = []
+        for _, packed_id in raw_items or []:
+            payload = self._unpack(packed_id) or {}
+            url = str(payload.get("url") or "").strip()
+            if not url or any(item[0] == url for item in payloads):
+                continue
+            payloads.append((url, payload))
+            if len(payloads) >= self.pan_fallback_links:
+                break
+        preferred = str(preferred_url or "").strip()
+        if preferred:
+            payloads.sort(key=lambda item: 0 if item[0] == preferred else 1)
+        base = dict(payloads[0][1]) if payloads else {}
+        urls = [url for url, _ in payloads]
+        profiles = [dict(payload.get("profile") or {}) for _, payload in payloads]
+        base.update(
+            {
+                "kind": "pan",
+                "url": (preferred if preferred in urls else (urls[0] if urls else "")),
+                "urls": urls,
+                "profiles": profiles,
+                "season": target_season,
+                "episode": episode,
+                "episode_limit": episode_limit,
+            }
+        )
+        return base
+
+    def _cached_backend_candidates(self, resource_url):
+        cache_key = str(resource_url or "").strip()
+        now = time.time()
+        with self._cache_lock:
+            failure = self._backend_parse_failures.get(cache_key)
+            if isinstance(failure, dict):
+                failed_until = float(failure.get("until") or 0)
+            else:
+                failed_until = float(failure or 0) + self.pan_failure_cooldown
+            if failure and failed_until > now:
+                return True, []
+            if failure:
+                self._backend_parse_failures.pop(cache_key, None)
+                self._backend_parse_failure_errors.pop(cache_key, None)
+            cached = self._backend_parse_cache.get(cache_key)
+            if not cached or now - cached[0] >= 1800:
+                return False, []
+            self._backend_parse_cache.move_to_end(cache_key)
+            return True, list(cached[1])
+
+    def _episode_candidates(self, candidates, target_season=None, episode_limit=None):
+        episode_map = {}
+        unnamed = []
+        for candidate in candidates or []:
+            episode = self._episode_number(candidate.get("name"), target_season)
+            if episode is None:
+                unnamed.append(candidate)
+                continue
+            if episode_limit and episode > episode_limit:
+                continue
+            current = episode_map.get(episode)
+            if current is None or candidate["score"] > current["score"]:
+                episode_map[episode] = candidate
+        # Some providers return a valid ordered 1@ list but use opaque labels
+        # (for example a hash or a localized title with no episode number).
+        # When the site already told us the episode bound, use the backend's
+        # original order only for the still-missing episode slots. This keeps
+        # explicit SxxExx/01/E01 mappings authoritative and avoids treating a
+        # movie-like single file as a multi-episode series.
+        if unnamed and episode_limit and episode_limit <= 500:
+            occupied = set(episode_map)
+            unnamed.sort(key=lambda item: item.get("order", 0))
+            for candidate in unnamed:
+                available = next(
+                    (episode for episode in range(1, episode_limit + 1) if episode not in occupied),
+                    None,
+                )
+                if available is None:
+                    break
+                episode_map[available] = candidate
+                occupied.add(available)
+        return episode_map
+
+    def _schedule_pan_background(self, jobs):
+        pending = []
+        with self._pan_background_lock:
+            generation = self._pan_generation
+            for provider, url in jobs:
+                job_key = (generation, url)
+                if job_key in self._pan_background_urls:
+                    continue
+                found, _ = self._cached_backend_candidates(url)
+                if found:
+                    continue
+                self._pan_background_urls.add(job_key)
+                pending.append((provider, url))
+        if not pending:
+            return
+        worker = threading.Thread(
+            target=self._pan_background_worker,
+            args=(pending, generation),
+            name="guanying-pan-expand",
+        )
+        worker.daemon = True
+        worker.start()
+
+    def _pan_background_worker(self, jobs, generation):
+        if not self._pan_generation_current(generation):
+            return
+        workers, _ = self._pan_prewarm_limits(len(jobs))
+        self._record_metric("pan_prewarm_jobs", amount=len(jobs))
+        self._log("pan-background", state="start", jobs=len(jobs), workers=workers)
+        try:
+            with ThreadPoolExecutor(max_workers=workers) as executor:
+                futures = {
+                    executor.submit(
+                        self._backend_parse_resource, url, "网盘", generation
+                    ): (provider, url)
+                    for provider, url in jobs
+                }
+                for future in as_completed(futures):
+                    provider, url = futures[future]
+                    try:
+                        candidates = future.result()
+                        if not self._pan_generation_current(generation):
+                            continue
+                        self._mark_provider_capability(provider, "enabled")
+                        self._record_metric("pan_prewarm_ok")
+                        self._log(
+                            "pan-background",
+                            state="ok",
+                            provider=provider,
+                            files=len(candidates),
+                        )
+                    except Exception as exc:
+                        if not self._pan_generation_current(generation):
+                            continue
+                        if self._is_pan_capability_failure(exc):
+                            self._mark_provider_capability(provider, "failed", exc)
+                        self._record_metric("pan_prewarm_error")
+                        self._log(
+                            "pan-background",
+                            state="error",
+                            provider=provider,
+                            error=type(exc).__name__,
+                        )
+                    finally:
+                        with self._pan_background_lock:
+                            self._pan_background_urls.discard((generation, url))
+        finally:
+            self._log("pan-background", state="done")
+
+    def _pan_prewarm_limits(self, provider_count):
+        provider_count = max(1, int(provider_count or 1))
+        aggressive = bool(self.aggressive_detail_prewarm)
+        with self._metrics_lock:
+            stats = dict(self._pan_parse_stats)
+        attempts = int(stats.get("attempts") or 0)
+        successes = int(stats.get("successes") or 0)
+        failure_rate = 1.0 - (float(successes) / attempts) if attempts else 0.0
+        ewma_ms = float(stats.get("ewma_ms") or 0)
+        if not attempts:
+            workers = min(6 if aggressive else 4, max(1, (provider_count + 1) // 2))
+            jobs = min(12 if aggressive else 8, max(2, provider_count + 1))
+        elif failure_rate >= 0.5 or ewma_ms >= 12000:
+            workers, jobs = 1, 2
+        elif failure_rate >= 0.25 or ewma_ms >= 6000:
+            workers, jobs = 2, 4
+        elif failure_rate <= 0.1 and ewma_ms <= 2500:
+            workers, jobs = (6, 12) if aggressive else (4, 8)
+        else:
+            workers, jobs = (4, 8) if aggressive else (3, 6)
+        return (
+            max(1, min(self.pan_background_workers, workers, provider_count)),
+            max(2, min(self.pan_background_job_limit, jobs)),
+        )
+
+    def _record_pan_parse(self, success, elapsed_ms, failure_kind=""):
+        with self._metrics_lock:
+            stats = self._pan_parse_stats
+            stats["attempts"] = int(stats.get("attempts") or 0) + 1
+            stats["successes"] = int(stats.get("successes") or 0) + (1 if success else 0)
+            previous = float(stats.get("ewma_ms") or elapsed_ms)
+            stats["ewma_ms"] = previous * 0.75 + float(elapsed_ms) * 0.25
+            if failure_kind:
+                stats["last_failure_kind"] = failure_kind
+        self._record_metric(
+            "pan_parse_ok" if success else "pan_parse_error", elapsed_ms=elapsed_ms
+        )
+
+    def _backend_parse_resource(self, resource_url, resource_name, generation=None):
+        if generation is not None and not self._pan_generation_current(generation):
+            raise RuntimeError("后端探测已过期")
+        cache_key = str(resource_url or "").strip()
+        now = time.time()
+        cached_candidates = None
+        with self._cache_lock:
+            cached = self._backend_parse_cache.get(cache_key)
+            if cached and now - cached[0] < 1800:
+                self._backend_parse_cache.move_to_end(cache_key)
+                cached_candidates = cached[1]
+        if cached_candidates is not None:
+            self._record_metric("pan_parse_cache_hit")
+            if cache_key.startswith(("http://", "https://")):
+                self._remember_pan_profile(cache_key, cached_candidates)
+            return cached_candidates
+
+        failure_message = self._active_backend_failure(cache_key)
+        if failure_message:
+            self._record_metric("pan_failure_cache_hit")
+            raise RuntimeError(failure_message)
+
+        with self._cache_lock:
+            inflight = self._backend_parse_inflight.get(cache_key)
+            if inflight is None:
+                inflight = threading.Event()
+                self._backend_parse_inflight[cache_key] = inflight
+                owner = True
+            else:
+                owner = False
+        if not owner:
+            wait_timeout = (
+                self.pan_click_inflight_wait
+                if generation is None
+                else max(40, self.timeout + 10)
+            )
+            finished = inflight.wait(wait_timeout)
+            if generation is not None and not self._pan_generation_current(generation):
+                raise RuntimeError("后端探测已过期")
+            with self._cache_lock:
+                cached = self._backend_parse_cache.get(cache_key)
+                shared_candidates = cached[1] if cached else None
+                failure_message = self._backend_parse_failure_errors.get(cache_key, "")
+            if shared_candidates is not None:
+                if cache_key.startswith(("http://", "https://")):
+                    self._remember_pan_profile(cache_key, shared_candidates)
+                return shared_candidates
+            if not finished:
+                raise RuntimeError("后台解析仍在进行，请稍后重试")
+            raise RuntimeError(failure_message or "共享后端解析失败")
+
+        parse_started = time.perf_counter()
+        try:
+            session = self._backend_session()
+            response = session.post(
+                self._backend_endpoint("parse"),
+                params={"ac": "play"},
+                json={"url": cache_key},
+                headers={"Content-Type": "application/json"},
+                timeout=max(35, self.timeout),
+            )
+            data = self._response_json(response, "%s后端解析" % resource_name)
+            candidates = self._backend_play_candidates(data)
+            if cache_key.startswith(("http://", "https://")):
+                self._remember_pan_profile(cache_key, candidates)
+            if generation is not None and not self._pan_generation_current(generation):
+                raise RuntimeError("后端探测已过期")
+            with self._cache_lock:
+                self._backend_parse_failures.pop(cache_key, None)
+                self._backend_parse_failure_errors.pop(cache_key, None)
+                self._backend_parse_cache[cache_key] = (time.time(), candidates)
+                self._backend_parse_cache.move_to_end(cache_key)
+                while len(self._backend_parse_cache) > self.MAX_CACHE:
+                    self._backend_parse_cache.popitem(last=False)
+            self._record_pan_parse(True, self._elapsed_ms(parse_started))
+            return candidates
+        except Exception as exc:
+            if generation is not None and not self._pan_generation_current(generation):
+                raise RuntimeError("后端探测已过期")
+            if (
+                generation is not None
+                and cache_key.startswith(("http://", "https://"))
+                and self._is_permanent_pan_link_failure(exc)
+            ):
+                self._remember_pan_link(cache_key, False, exc, parse_started)
+            failure_kind = self._classify_pan_failure(exc)
+            self._remember_backend_failure(cache_key, exc, failure_kind)
+            self._record_pan_parse(False, self._elapsed_ms(parse_started), failure_kind)
+            raise exc
+        finally:
+            with self._cache_lock:
+                current = self._backend_parse_inflight.get(cache_key)
+                if current is inflight:
+                    self._backend_parse_inflight.pop(cache_key, None)
+                    inflight.set()
+
+    def _active_backend_failure(self, cache_key):
+        now = time.time()
+        with self._cache_lock:
+            failure = self._backend_parse_failures.get(cache_key)
+            if not failure:
+                return ""
+            if isinstance(failure, dict):
+                failed_until = float(failure.get("until") or 0)
+            else:
+                failed_until = float(failure) + self.pan_failure_cooldown
+            if failed_until <= now:
+                self._backend_parse_failures.pop(cache_key, None)
+                self._backend_parse_failure_errors.pop(cache_key, None)
+                return ""
+            return self._backend_parse_failure_errors.get(cache_key, "后端解析暂时不可用")
+
+    def _remember_backend_failure(self, cache_key, error, failure_kind=None):
+        kind = failure_kind or self._classify_pan_failure(error)
+        now = time.time()
+        with self._cache_lock:
+            self._backend_parse_failures[cache_key] = {
+                "at": now,
+                "until": now + self._pan_failure_cooldown(kind),
+                "kind": kind,
+            }
+            self._backend_parse_failure_errors[cache_key] = self._short_backend_error(error)
+            while len(self._backend_parse_failures) > self.MAX_CACHE:
+                oldest = next(iter(self._backend_parse_failures))
+                self._backend_parse_failures.pop(oldest, None)
+                self._backend_parse_failure_errors.pop(oldest, None)
+
+    def _season_number(self, title):
+        text = self._clean_text(title)
+        match = re.search(r"(?:第\s*)?(\d{1,2})\s*季|Season\s*(\d{1,2})", text, re.I)
+        if match:
+            return self._safe_int(match.group(1) or match.group(2)) or None
+        chinese = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6,
+                   "七": 7, "八": 8, "九": 9, "十": 10}
+        match = re.search(r"第\s*([一二三四五六七八九十])\s*季", text)
+        return chinese.get(match.group(1)) if match else None
+
+    def _episode_number(self, name, target_season=None):
+        text = self._clean_text(name)
+        season_match = re.search(r"S\s*0*(\d{1,2})\s*E(?:P)?\s*0*(\d{1,3})", text, re.I)
+        if season_match:
+            season = self._safe_int(season_match.group(1))
+            episode = self._safe_int(season_match.group(2))
+            if target_season and season != target_season:
+                return None
+            return episode if 0 < episode <= 500 else None
+        patterns = (
+            r"^\s*0*(\d{1,3})(?=[\s._-])",
+            r"(?:^|[^A-Z])EP?\s*0*(\d{1,3})(?:[^0-9]|$)",
+            r"第\s*0*(\d{1,3})\s*[集话期]",
+            r"\[\s*0*(\d{1,3})\s*\]",
+        )
+        for pattern in patterns:
+            match = re.search(pattern, text, re.I)
+            if match:
+                episode = self._safe_int(match.group(1))
+                if 0 < episode <= 500:
+                    return episode
+        if self.VIDEO_EXT_RE.search(text):
+            match = re.search(
+                r"(?:^|[\s._-])0*(\d{1,3})(?=[\s._-]|\.[A-Za-z0-9]{2,5}$)",
+                text,
+                re.I,
+            )
+            if match:
+                episode = self._safe_int(match.group(1))
+                if 0 < episode <= 500:
+                    return episode
+        return None
+
+    def _quality_label(self, name):
+        text = str(name or "")
+        labels = []
+        if re.search(r"2160|4K|UHD", text, re.I):
+            labels.append("4K")
+        elif re.search(r"1080", text, re.I):
+            labels.append("1080P")
+        elif re.search(r"720", text, re.I):
+            labels.append("720P")
+        if re.search(r"高码(?:率)?|REMUX|BluRay|BDREMUX|WEB[- .]?DL", text, re.I):
+            labels.append("高码")
+        if re.search(r"Dolby\s*Vision|杜比视界|(?:^|[ ._-])DV(?:[ ._-]|$)|dvhe", text, re.I):
+            labels.append("DV")
+        elif re.search(r"HDR", text, re.I):
+            labels.append("HDR")
+        if re.search(r"H\.?264|AVC|x264", text, re.I):
+            labels.append("AVC")
+        return "·".join(labels)
+
+    def _extract_online(self, playlist, dir_name, item_id):
+        if not isinstance(playlist, list):
+            return []
+        entries = []
+        seen = set()
+        for source_index, source in enumerate(playlist):
+            if not isinstance(source, dict):
+                continue
+            source_id = str(source.get("i") or source.get("id") or "").strip()
+            source_name = self._clean_text(source.get("t") or source.get("name") or "在线播放")
+            episodes = source.get("list") or source.get("episodes") or []
+            if not source_id or not isinstance(episodes, list):
+                continue
+            expanded = self._expand_online_episodes(episodes)
+            for episode_index, episode_name in expanded:
+                key = episode_index
+                if key in seen:
+                    continue
+                seen.add(key)
+                label = self._safe_label("第%s集" % episode_index)
+                payload = {
+                    "kind": "online",
+                    "dir": dir_name,
+                    "id": item_id,
+                    "source": source_id,
+                    "episode": episode_index,
+                }
+                entries.append(
+                    {
+                        "label": label,
+                        "id": self._pack(payload),
+                        "source": source_name,
+                    }
+                )
+        if not entries:
+            return []
+        return [("采集源", [(item["label"], item["id"]) for item in entries])]
+
+    def _expand_online_episodes(self, episodes):
+        """Expand the site's compact playlist ranges into (episode, label)."""
+        result = []
+        if not isinstance(episodes, list):
+            return result
+        for index, raw in enumerate(episodes, start=1):
+            if isinstance(raw, str):
+                label = self._clean_text(raw) or "第%s集" % index
+                match = re.search(r"(?:第\s*)?(\d+)", label)
+                result.append((int(match.group(1)) if match else index, label))
+                continue
+            if isinstance(raw, (tuple, list)) and len(raw) == 2:
+                template, value = raw
+                if isinstance(template, (tuple, list)) and template:
+                    parts = [self._clean_text(part) for part in template]
+                    if isinstance(value, (tuple, list)) and len(value) >= 2:
+                        start, end = self._safe_int(value[0]), self._safe_int(value[1])
+                    else:
+                        start = end = self._safe_int(value)
+                    if start > 0 and end >= start and end - start <= 500:
+                        prefix = parts[0] if parts else ""
+                        suffix = parts[1] if len(parts) > 1 else ""
+                        for episode in range(start, end + 1):
+                            result.append((episode, "%s%s%s" % (prefix, episode, suffix)))
+                        continue
+            if isinstance(raw, (tuple, list)):
+                nested = self._expand_online_episodes(list(raw))
+                if nested:
+                    result.extend(nested)
+                    continue
+            label = self._clean_text(raw) or "第%s集" % index
+            result.append((index, label))
+        return result
+
+    def _build_detail_vod(self, metadata, groups, stats, dir_name, item_id):
+        play_from = []
+        play_url = []
+        vod_flags = []
+        prompt_label = "选集播放"
+        prompt_id = self._status_id("请选择具体集数")
+        for group_name, items in groups:
+            valid = []
+            for label, value in items:
+                payload = self._unpack(str(value or ""))
+                if not payload or payload.get("kind") not in (
+                    "pan",
+                    "backend",
+                    "online",
+                    "magnet",
+                ):
+                    continue
+                valid.append((self._safe_label(label), value))
+            if not valid:
+                continue
+            safe_group = self._safe_label(group_name)
+            prompted = [(prompt_label, prompt_id)] + valid
+            urls = "#".join("%s$%s" % item for item in prompted)
+            play_from.append(safe_group)
+            play_url.append(urls)
+            vod_flags.append(
+                {
+                    "flag": safe_group,
+                    "urls": urls,
+                    "position": 0,
+                    "episodes": [
+                        {"name": prompt_label, "url": prompt_id, "selected": True}
+                    ]
+                    + [
+                        {"name": label, "url": value, "selected": False}
+                        for label, value in valid
+                    ],
+                }
+            )
+        diag = "资源分组%s组：磁力%s，网盘%s，在线%s。当前镜像：%s" % (
+            stats.get("groups", 0),
+            stats.get("magnet", 0),
+            stats.get("pan", 0),
+            stats.get("online", 0),
+            self._host or "未选择",
+        )
+        if stats.get("pan_total"):
+            diag += "。网盘分集已完成%s/%s，后台处理中%s" % (
+                stats.get("pan_ready", 0),
+                stats.get("pan_total", 0),
+                stats.get("pan_pending", 0),
+            )
+        content = metadata.get("content") or ""
+        if content:
+            content += "\n\n"
+        content += diag
+        return {
+            "vod_id": self._vod_id(dir_name, item_id),
+            "vod_name": metadata.get("title") or "未知影片",
+            "vod_pic": metadata.get("pic") or self._image(dir_name, item_id, 384),
+            "type_name": metadata.get("genres") or "",
+            "vod_year": metadata.get("year") or "",
+            "vod_area": metadata.get("areas") or "",
+            "vod_remarks": metadata.get("remarks") or diag,
+            "vod_actor": metadata.get("actors") or "",
+            "vod_director": metadata.get("directors") or "",
+            "vod_content": content[:1800],
+            "vod_play_from": "$$$".join(play_from),
+            "vod_play_url": "$$$".join(play_url),
+            "vodFlags": vod_flags,
+        }
+
+    def _play_pan(self, payload):
+        click_started = time.perf_counter()
+        url = str(payload.get("url") or "").strip()
+        urls = payload.get("urls") or []
+        if isinstance(urls, str):
+            urls = [urls]
+        candidates = []
+        for candidate in [url] + list(urls):
+            candidate = str(candidate or "").strip()
+            if candidate.startswith(("http://", "https://")) and candidate not in candidates:
+                candidates.append(candidate)
+            if len(candidates) >= self.pan_fallback_links:
+                break
+        if not candidates:
+            self._record_metric("pan_click_error", elapsed_ms=self._elapsed_ms(click_started))
+            return self._player_error("网盘地址无效")
+        candidates, cooled = self._rank_pan_links(
+            candidates,
+            self._safe_int(payload.get("episode_limit")) or None,
+            self._safe_int(payload.get("episode")) or None,
+            payload.get("profiles") or [payload.get("profile") or {}],
+        )
+        if not candidates:
+            message = cooled[0].get("error") if cooled else "候选分享处于冷却"
+            permanent = cooled and all(
+                item.get("failure_kind") == "permanent" for item in cooled
+            )
+            prefix = "候选网盘分享均已失效" if permanent else "候选网盘分享暂不可用"
+            self._record_metric("pan_click_error", elapsed_ms=self._elapsed_ms(click_started))
+            return self._player_error("%s: %s" % (prefix, message))
+        failures = []
+        for candidate in candidates:
+            started = time.perf_counter()
+            try:
+                result = self._play_backend_resource(
+                    candidate,
+                    "网盘",
+                    target_season=self._safe_int(payload.get("season")) or None,
+                    target_episode=self._safe_int(payload.get("episode")) or None,
+                    episode_limit=self._safe_int(payload.get("episode_limit")) or None,
+                )
+                self._remember_pan_link(candidate, True, "", started)
+                self._mark_provider_capability(payload.get("provider"), "enabled")
+                self._record_metric("pan_click_ok", elapsed_ms=self._elapsed_ms(click_started))
+                return result
+            except Exception as exc:
+                self._remember_pan_link(candidate, False, exc, started)
+                failures.append((candidate, exc))
+                self._diag("backend_pan", error=str(exc), url=candidate)
+                self._log(
+                    "pan-play-fallback",
+                    provider=payload.get("provider") or "unknown",
+                    attempt=len(failures),
+                    error=self._short_backend_error(exc),
+                )
+        capability_error = next(
+            (exc for _, exc in failures if self._is_pan_capability_failure(exc)), None
+        )
+        if capability_error is not None:
+            self._mark_provider_capability(payload.get("provider"), "failed", capability_error)
+        push_candidate = next(
+            (candidate for candidate, exc in failures if not self._is_permanent_pan_link_failure(exc)),
+            "",
+        )
+        message = self._short_backend_error(failures[0][1]) if failures else "网盘解析失败"
+        self._record_metric("pan_click_error", elapsed_ms=self._elapsed_ms(click_started))
+        if push_candidate:
+            return {
+                "parse": 0,
+                "jx": 0,
+                "playUrl": "",
+                "url": "push://" + push_candidate,
+                "header": {},
+                "msg": "候选网盘均未解析成功，已回退推送: %s" % message,
+            }
+        return self._player_error("候选网盘分享均已失效: %s" % message)
+
+    def _rank_pan_links(self, urls, episode_limit=None, target_episode=None, profiles=None):
+        now = time.time()
+        parse_ready = {}
+        for url in urls:
+            found, candidates = self._cached_backend_candidates(url)
+            parse_ready[url] = bool(found and candidates)
+        static_profiles = {
+            str(item.get("url") or "").strip(): dict(item)
+            for item in (profiles or [])
+            if isinstance(item, dict) and item.get("url")
+        }
+        with self._cache_lock:
+            history = {url: dict(self._pan_link_history.get(url) or {}) for url in urls}
+        active = []
+        cooled = []
+        for order, url in enumerate(urls):
+            record = history.get(url) or {}
+            item = {"url": url, "order": order, **(static_profiles.get(url) or {}), **record}
+            if float(record.get("failed_until") or 0) > now:
+                cooled.append(item)
+            else:
+                active.append(item)
+
+        def score(item):
+            attempts = int(item.get("attempts") or 0)
+            successes = int(item.get("successes") or 0)
+            success_rate = float(successes) / attempts if attempts else 0.5
+            profiled_episodes = int(item.get("episode_count") or 0)
+            episode_numbers = {
+                self._safe_int(value) for value in item.get("episode_numbers") or []
+            }
+            if target_episode and episode_numbers:
+                target_match = 2 if target_episode in episode_numbers else 0
+            else:
+                target_match = 1
+            if episode_limit and profiled_episodes:
+                completeness = min(1.0, float(profiled_episodes) / episode_limit)
+            else:
+                completeness = 0.5
+            availability = 2 if successes else (1 if not attempts else 0)
+            return (
+                target_match,
+                1 if parse_ready.get(item["url"]) else 0,
+                availability,
+                completeness,
+                int(item.get("quality") or 0),
+                1 if item.get("high_bitrate") else 0,
+                int(item.get("max_size") or 0),
+                success_rate,
+                -int(item.get("average_ms") or 999999),
+                -int(item.get("order") or 0),
+            )
+
+        active.sort(key=score, reverse=True)
+        return [item["url"] for item in active], cooled
+
+    def _pan_link_available(self, url):
+        with self._cache_lock:
+            record = dict(self._pan_link_history.get(str(url or "").strip()) or {})
+        return float(record.get("failed_until") or 0) <= time.time()
+
+    def _remember_pan_link(self, url, success, error, started):
+        elapsed_ms = int((time.perf_counter() - started) * 1000)
+        failure_kind = "" if success else self._classify_pan_failure(error)
+        with self._cache_lock:
+            current = dict(self._pan_link_history.get(url) or {})
+            attempts = int(current.get("attempts") or 0) + 1
+            successes = int(current.get("successes") or 0) + (1 if success else 0)
+            previous_ms = int(current.get("average_ms") or elapsed_ms)
+            current.update(
+                {
+                    "attempts": attempts,
+                    "successes": successes,
+                    "average_ms": int(previous_ms * 0.7 + elapsed_ms * 0.3),
+                    "error": "" if success else self._short_backend_error(error),
+                    "failure_kind": failure_kind,
+                    "failed_until": (
+                        time.time() + self._pan_failure_cooldown(failure_kind)
+                        if not success
+                        else 0
+                    ),
+                }
+            )
+            self._pan_link_history[url] = current
+            self._pan_link_history.move_to_end(url)
+            while len(self._pan_link_history) > self.MAX_CACHE:
+                self._pan_link_history.popitem(last=False)
+
+    def _remember_pan_profile(self, url, candidates):
+        episode_numbers = {
+            episode
+            for episode in (self._episode_number(item.get("name")) for item in candidates or [])
+            if episode is not None
+        }
+        names = [str(item.get("name") or "") for item in candidates or []]
+        likely_file_count = sum(
+            1 for name in names if not re.search(r"广告|推广|sample|预告|片头|片尾|花絮", name, re.I)
+        )
+        with self._cache_lock:
+            current = dict(self._pan_link_history.get(url) or {})
+            current.update(
+                {
+                    "episode_count": len(episode_numbers) or likely_file_count,
+                    "episode_numbers": sorted(episode_numbers),
+                    "file_count": len(candidates or []),
+                    "quality": max((self._quality_score(name) for name in names), default=0),
+                    "high_bitrate": any(
+                        re.search(r"高码(?:率)?|REMUX|BluRay|BDREMUX|WEB[- .]?DL", name, re.I)
+                        for name in names
+                    ),
+                    "max_size": max((self._size_bytes(name) for name in names), default=0),
+                    "profiled_at": time.time(),
+                }
+            )
+            self._pan_link_history[url] = current
+            self._pan_link_history.move_to_end(url)
+            while len(self._pan_link_history) > self.MAX_CACHE:
+                self._pan_link_history.popitem(last=False)
+
+    def _is_permanent_pan_link_failure(self, error):
+        return bool(
+            re.search(
+                r"分享者.*封禁|链接.*受限|分享.*失效|链接.*失效|已取消分享|不存在|已过期|被删除",
+                self._clean_text(str(error or "")),
+                re.I,
+            )
+        )
+
+    def _is_pan_capability_failure(self, error):
+        return bool(
+            re.search(
+                r"找不到.*(?:帐号|账号)|未配置.*(?:帐号|账号|网盘)|(?:帐号|账号).*不可用|接口.*不可用",
+                self._clean_text(str(error or "")),
+                re.I,
+            )
+        )
+
+    def _classify_pan_failure(self, error):
+        text = self._clean_text(str(error or ""))
+        if self._is_pan_capability_failure(text):
+            return "capability"
+        if self._is_permanent_pan_link_failure(text):
+            return "permanent"
+        if re.search(r"(?:HTTP\s*)?429|请求.*频繁|访问.*频繁|限流|频率.*限制|too many", text, re.I):
+            return "rate_limit"
+        if re.search(
+            r"timeout|timed out|连接|network|temporary|HTTP\s*(?:502|503|504)|"
+            r"稍后重试|处理中|未在.*完成|后端探测已过期",
+            text,
+            re.I,
+        ):
+            return "transient"
+        return "unknown"
+
+    def _pan_failure_cooldown(self, failure_kind):
+        return {
+            "capability": self.pan_capability_failure_cooldown,
+            "permanent": self.pan_link_failure_cooldown,
+            "rate_limit": self.pan_rate_limit_cooldown,
+            "transient": self.pan_transient_failure_cooldown,
+            "unknown": self.pan_unknown_failure_cooldown,
+        }.get(str(failure_kind or "unknown"), self.pan_unknown_failure_cooldown)
+
+    def _play_online(self, payload):
+        click_started = time.perf_counter()
+        source_id = str(payload.get("source") or "").strip()
+        episode = self._page_number(payload.get("episode"))
+        if not source_id:
+            return self._player_error("在线线路 ID 为空")
+        dir_name = str(payload.get("dir") or "")
+        item_id = str(payload.get("id") or "")
+        cache_key = (dir_name, item_id, episode)
+        cached = self._cached_online_result(cache_key)
+        if cached:
+            self._record_metric("online_click_cache", elapsed_ms=self._elapsed_ms(click_started))
+            return self._online_player_result(cached)
+        candidates = []
+        try:
+            resources = self._request_resources(dir_name, item_id)
+            for order, source in enumerate(resources.get("playlist") or []):
+                alt_id = str(source.get("i") or source.get("id") or "").strip()
+                episodes = source.get("list") or []
+                available = {number for number, _ in self._expand_online_episodes(episodes)}
+                if alt_id and episode in available:
+                    candidates.append(
+                        {
+                            "id": alt_id,
+                            "name": self._clean_text(
+                                source.get("t") or source.get("name") or "线路%s" % (order + 1)
+                            ),
+                            "order": order,
+                            "episode_count": len(available),
+                        }
+                    )
+        except Exception:
+            pass
+        if not candidates:
+            candidates = [{"id": source_id, "name": "默认线路", "order": 0, "episode_count": 0}]
+        elif source_id and all(item["id"] != source_id for item in candidates):
+            candidates.insert(0, {"id": source_id, "name": "默认线路", "order": -1, "episode_count": 0})
+
+        ranked = self._rank_online_candidates(candidates)
+        selected, completed = self._race_online_candidates(ranked, episode)
+        if selected:
+            self._remember_online_result(cache_key, selected)
+            self._record_metric("online_click_ok", elapsed_ms=self._elapsed_ms(click_started))
+            self._log(
+                "online-select",
+                source=selected.get("name") or selected.get("id"),
+                episode=episode,
+                height=selected.get("height", 0),
+                bandwidth=selected.get("bandwidth", 0),
+                elapsed_ms=selected.get("total_ms", 0),
+                tested=len(completed),
+            )
+            return self._online_player_result(selected)
+
+        errors = [item.get("error") for item in completed if item.get("error")]
+        attempted = {item.get("id") for item in ranked[: self.online_probe_workers]}
+        for candidate in ranked:
+            if candidate["id"] in attempted:
+                continue
+            try:
+                source, _ = self._request_text("/py/%s/%s" % (candidate["id"], episode))
+                data = self._extract_obj(source, "player")
+                url = str((data or {}).get("url") or "").strip()
+                if url.startswith(("http://", "https://")):
+                    fallback = dict(candidate, url=url, media_ok=False, resolve_ok=True)
+                    self._remember_online_result(cache_key, fallback)
+                    self._record_metric("online_click_ok", elapsed_ms=self._elapsed_ms(click_started))
+                    return self._online_player_result(fallback)
+            except Exception as exc:
+                errors.append(str(exc))
+        self._record_metric("online_click_error", elapsed_ms=self._elapsed_ms(click_started))
+        return self._player_error("在线线路均解析失败%s" % ((": " + errors[0]) if errors else ""))
+
+    def _online_executor_instance(self):
+        with self._online_executor_lock:
+            if self._online_executor is None:
+                self._online_executor = ThreadPoolExecutor(max_workers=self.online_probe_workers)
+            return self._online_executor
+
+    def _race_online_candidates(self, candidates, episode):
+        selected_candidates = candidates[: self.online_probe_workers]
+        if not selected_candidates:
+            return None, []
+        try:
+            host, shared_session = self._client()
+            cookies = shared_session.cookies.get_dict()
+        except Exception:
+            return None, []
+        executor = self._online_executor_instance()
+        pending = {
+            executor.submit(self._probe_online_candidate, item, episode, host, cookies)
+            for item in selected_candidates
+        }
+        completed = []
+        deadline = time.perf_counter() + self.online_probe_deadline_ms / 1000.0
+        first_success_deadline = None
+        while pending:
+            active_deadline = deadline
+            if first_success_deadline is not None:
+                active_deadline = min(active_deadline, first_success_deadline)
+            remaining = active_deadline - time.perf_counter()
+            if remaining <= 0:
+                break
+            done, pending = wait(pending, timeout=remaining, return_when=FIRST_COMPLETED)
+            if not done:
+                break
+            for future in done:
+                try:
+                    result = future.result()
+                except Exception as exc:
+                    result = {"media_ok": False, "resolve_ok": False, "error": str(exc)}
+                completed.append(result)
+                if result.get("media_ok") and first_success_deadline is None:
+                    first_success_deadline = (
+                        time.perf_counter() + self.online_quality_grace_ms / 1000.0
+                    )
+        playable = [item for item in completed if item.get("media_ok")]
+        if not playable:
+            playable = [item for item in completed if item.get("resolve_ok")]
+        return (max(playable, key=self._online_result_score) if playable else None), completed
+
+    def _probe_online_candidate(self, candidate, episode, host, cookies):
+        result = dict(candidate)
+        result.update(
+            {
+                "resolve_ok": False,
+                "media_ok": False,
+                "resolve_ms": 0,
+                "media_ms": 0,
+                "total_ms": 0,
+                "height": 0,
+                "bandwidth": 0,
+                "url": "",
+                "error": "",
+            }
+        )
+        started = time.perf_counter()
+        session = self._new_session()
+        session.cookies.update(cookies or {})
+        try:
+            response = session.get(
+                "%s/py/%s/%s" % (host, quote(candidate["id"]), episode),
+                headers={"Referer": host + "/"},
+                timeout=min(self.timeout, 8),
+            )
+            response.raise_for_status()
+            result["resolve_ms"] = int((time.perf_counter() - started) * 1000)
+            data = self._extract_obj(response.text, "player") or {}
+            media_url = str(data.get("url") or "").strip()
+            if not media_url.startswith(("http://", "https://")):
+                raise RuntimeError("播放页没有返回HTTP媒体地址")
+            result["resolve_ok"] = True
+            result["url"] = media_url
+            media_started = time.perf_counter()
+            media = session.get(
+                media_url,
+                headers={
+                    "Referer": host + "/",
+                    "Range": "bytes=0-%s" % (self.online_probe_bytes - 1),
+                },
+                timeout=min(self.timeout, 6),
+                stream=True,
+            )
+            payload = media.raw.read(self.online_probe_bytes, decode_content=False)
+            result["media_ms"] = int((time.perf_counter() - media_started) * 1000)
+            content_type = str(media.headers.get("Content-Type") or "").lower()
+            text = payload.decode("utf-8", errors="ignore")
+            is_html = "text/html" in content_type or text.lstrip().lower().startswith("<!doctype html")
+            result["media_ok"] = media.status_code in (200, 206) and bool(payload) and not is_html
+            result.update(self._online_media_quality(media_url, text))
+            media.close()
+        except Exception as exc:
+            result["error"] = "%s: %s" % (type(exc).__name__, str(exc)[:180])
+        finally:
+            result["total_ms"] = int((time.perf_counter() - started) * 1000)
+            session.close()
+            self._remember_online_history(result)
+        return result
+
+    def _online_media_quality(self, url, text):
+        heights = [int(value) for value in re.findall(r"RESOLUTION=\d+x(\d+)", text, re.I)]
+        bandwidths = [int(value) for value in re.findall(r"BANDWIDTH=(\d+)", text, re.I)]
+        lowered = str(url or "").lower()
+        inferred = 0
+        for marker, height in (("2160", 2160), ("4k", 2160), ("1080", 1080), ("720", 720), ("480", 480)):
+            if marker in lowered:
+                inferred = max(inferred, height)
+        return {
+            "height": max(heights + [inferred]) if heights or inferred else 0,
+            "bandwidth": max(bandwidths) if bandwidths else 0,
+        }
+
+    def _online_line_key(self, name):
+        return re.sub(r"\s*\([^)]*\)\s*$", "", self._clean_text(name)).lower()
+
+    def _remember_online_history(self, result):
+        key = self._online_line_key(result.get("name") or result.get("id"))
+        if not key:
+            return
+        with self._cache_lock:
+            current = dict(self._online_history.get(key) or {})
+            attempts = int(current.get("attempts") or 0) + 1
+            successes = int(current.get("successes") or 0) + (1 if result.get("media_ok") else 0)
+            previous_ms = int(current.get("average_ms") or result.get("total_ms") or 0)
+            current.update(
+                {
+                    "attempts": attempts,
+                    "successes": successes,
+                    "average_ms": int(previous_ms * 0.7 + int(result.get("total_ms") or 0) * 0.3),
+                    "height": max(int(current.get("height") or 0), int(result.get("height") or 0)),
+                    "bandwidth": max(int(current.get("bandwidth") or 0), int(result.get("bandwidth") or 0)),
+                    "updated": time.time(),
+                }
+            )
+            self._online_history[key] = current
+            self._online_history.move_to_end(key)
+            while len(self._online_history) > self.MAX_CACHE:
+                self._online_history.popitem(last=False)
+
+    def _rank_online_candidates(self, candidates):
+        with self._cache_lock:
+            history = {key: dict(value) for key, value in self._online_history.items()}
+
+        def score(item):
+            record = history.get(self._online_line_key(item.get("name") or item.get("id"))) or {}
+            attempts = int(record.get("attempts") or 0)
+            success_rate = (float(record.get("successes") or 0) / attempts) if attempts else -1.0
+            return (
+                1 if int(record.get("successes") or 0) else 0,
+                success_rate if attempts else 0.5,
+                int(record.get("height") or 0),
+                int(record.get("bandwidth") or 0),
+                -int(record.get("average_ms") or 999999),
+                int(item.get("episode_count") or 0),
+                -int(item.get("order") or 0),
+            )
+
+        return sorted(candidates, key=score, reverse=True)
+
+    def _online_result_score(self, item):
+        key = self._online_line_key(item.get("name") or item.get("id"))
+        with self._cache_lock:
+            record = dict(self._online_history.get(key) or {})
+        attempts = int(record.get("attempts") or 0)
+        success_rate = (float(record.get("successes") or 0) / attempts) if attempts else 0.0
+        return (
+            1 if item.get("media_ok") else 0,
+            int(item.get("height") or 0),
+            int(item.get("bandwidth") or 0),
+            success_rate,
+            -int(item.get("total_ms") or 999999),
+            -int(item.get("order") or 0),
+        )
+
+    def _online_player_result(self, item):
+        return {
+            "parse": 0,
+            "jx": 0,
+            "playUrl": "",
+            "url": str(item.get("url") or ""),
+            "header": {
+                "User-Agent": self.headers["User-Agent"],
+                "Referer": (self._host or self.address_page) + "/",
+            },
+        }
+
+    def _cached_online_result(self, key):
+        with self._cache_lock:
+            cached = self._online_result_cache.get(key)
+            if not cached or time.time() - cached[0] > self.online_result_ttl:
+                if cached:
+                    self._online_result_cache.pop(key, None)
+                return None
+            self._online_result_cache.move_to_end(key)
+            return dict(cached[1])
+
+    def _remember_online_result(self, key, result):
+        with self._cache_lock:
+            self._online_result_cache[key] = (time.time(), dict(result))
+            self._online_result_cache.move_to_end(key)
+            while len(self._online_result_cache) > self.MAX_CACHE:
+                self._online_result_cache.popitem(last=False)
+
+    def _play_magnet(self, payload):
+        magnet = self._normalize_magnet(payload.get("magnet"), payload.get("title"))
+        magnets = payload.get("magnets") or []
+        if isinstance(magnets, str):
+            magnets = [magnets]
+        candidates = []
+        for candidate in [magnet] + list(magnets):
+            normalized = self._normalize_magnet(candidate, payload.get("title"))
+            if normalized and normalized not in candidates:
+                candidates.append(normalized)
+            if len(candidates) >= self.magnet_fallback_links:
+                break
+        if not candidates:
+            return self._player_error("磁力地址无效")
+        errors = []
+        for candidate in candidates:
+            try:
+                return self._play_backend_resource(
+                    candidate,
+                    "磁力",
+                    target_season=self._safe_int(payload.get("season")) or None,
+                    target_episode=self._safe_int(payload.get("episode")) or None,
+                    episode_limit=self._safe_int(payload.get("episode_limit")) or None,
+                )
+            except Exception as exc:
+                errors.append((candidate, exc))
+                message = self._short_backend_error(exc)
+                if re.search(r"未在.*完成|稍后重试|处理中|timeout", message, re.I):
+                    break
+        if errors:
+            magnet, exc = errors[-1]
+            message = self._short_backend_error(exc)
+            if re.search(r"未在.*完成|稍后重试|处理中|timeout", message, re.I):
+                message = "离线下载中，稍后重试: " + message
+            if self.magnet_raw_fallback:
+                self._log("magnet-fallback", reason=message[:120])
+                return {
+                    "parse": 0,
+                    "jx": 0,
+                    "playUrl": "",
+                    "url": magnet,
+                    "header": {},
+                    "msg": "后端磁力解析失败，已回退原始磁力地址: %s" % message,
+                }
+            return self._player_error(message)
+        return self._player_error("磁力解析失败")
+
+    def _short_backend_error(self, error):
+        text = self._clean_text(str(error or ""))
+        if not text:
+            return "后端解析失败"
+        if "115接口返回非JSON响应" in text or "115科技官网" in text:
+            return "115接口返回网页，当前115账号或接口不可用"
+        if len(text) > 240:
+            text = text[:237] + "..."
+        return text
+
+    def _play_backend_resource(
+        self,
+        resource_url,
+        resource_name,
+        target_season=None,
+        target_episode=None,
+        episode_limit=None,
+    ):
+        if not self.alist_api or not self.alist_token:
+            raise RuntimeError("未配置原版 AList-TVBox 后端地址或 Token")
+
+        candidates = self._backend_parse_resource(resource_url, resource_name)
+        if not candidates:
+            raise RuntimeError("%s后端解析未返回 1@ 播放项" % resource_name)
+
+        if target_season or target_episode:
+            episode_map = self._episode_candidates(
+                candidates, target_season, episode_limit
+            )
+            if episode_map:
+                if target_episode:
+                    selected = episode_map.get(target_episode)
+                    if selected is None:
+                        raise RuntimeError("%s未找到第%s集" % (resource_name, target_episode))
+                    candidates = [selected]
+                else:
+                    candidates = [episode_map[min(episode_map)]]
+            elif target_episode:
+                raise RuntimeError("%s未识别出第%s集" % (resource_name, target_episode))
+
+        errors = []
+        for candidate in candidates:
+            try:
+                return self._backend_play(candidate["id"])
+            except Exception as exc:
+                errors.append(str(exc))
+        raise RuntimeError(errors[0] if errors else "%s后端播放失败" % resource_name)
+
+    def _backend_endpoint(self, name):
+        token = quote(str(self.alist_token or "").strip(), safe="")
+        suffix = "/%s" % token if token else ""
+        return "%s/%s%s" % (self.alist_api.rstrip("/"), name, suffix)
+
+    def _response_json(self, response, action):
+        try:
+            data = response.json() if response.content else {}
+        except Exception:
+            data = {}
+        if response.status_code >= 400:
+            message = str(
+                data.get("detail")
+                or data.get("msg")
+                or data.get("error")
+                or "%s HTTP %s" % (action, response.status_code)
+            )
+            raise RuntimeError(message)
+        if not isinstance(data, dict):
+            raise RuntimeError("%s返回结构异常" % action)
+        return data
+
+    def _backend_play_candidates(self, data):
+        candidates = []
+        seen = set()
+        rows = data.get("list") or data.get("data") or data.get("result") or []
+        if isinstance(rows, dict):
+            nested = rows.get("list")
+            rows = nested if isinstance(nested, list) else [rows]
+        serial = 0
+        for vod in rows:
+            if not isinstance(vod, dict):
+                continue
+            from_groups = str(
+                vod.get("vod_play_from") or vod.get("play_from") or vod.get("from") or ""
+            ).split("$$$")
+            url_groups = str(
+                vod.get("vod_play_url") or vod.get("play_url") or vod.get("url") or ""
+            ).split("$$$")
+            for group_index, url_group in enumerate(url_groups):
+                play_from = from_groups[group_index] if group_index < len(from_groups) else ""
+                for episode_index, episode in enumerate(str(url_group or "").split("#")):
+                    serial += 1
+                    label, separator, target = str(episode or "").partition("$")
+                    play_id = str(target if separator else label).strip()
+                    if not play_id.startswith("1@") or play_id in seen:
+                        continue
+                    seen.add(play_id)
+                    name = self._clean_text(label) or "%s-%s" % (play_from, episode_index + 1)
+                    candidates.append(
+                        {
+                            "id": play_id,
+                            "name": name,
+                            "score": self._backend_candidate_score(name, episode_index),
+                            "order": serial,
+                        }
+                    )
+        candidates.sort(key=lambda item: item["score"], reverse=True)
+        return candidates
+
+    def _backend_candidate_score(self, name, order):
+        text = str(name or "")
+        negative = bool(re.search(r"广告|推广|sample|预告|片头|片尾|花絮", text, re.I))
+        subtitle = bool(self.SUBTITLE_RE.search(text))
+        high_bitrate = bool(
+            re.search(r"高码(?:率)?|REMUX|BluRay|BDREMUX|WEB[- .]?DL", text, re.I)
+        )
+        return (
+            0 if negative else 1,
+            1 if high_bitrate else 0,
+            self._size_bytes(text),
+            self._quality_score(text),
+            1 if subtitle else 0,
+            -order,
+        )
+
+    def _backend_play(self, play_id):
+        cache_key = str(play_id or "").strip()
+        now = time.time()
+        with self._cache_lock:
+            cached = self._backend_play_cache.get(cache_key)
+            if cached and now - cached[0] < self.backend_play_cache_ttl:
+                self._backend_play_cache.move_to_end(cache_key)
+                result = dict(cached[1])
+                if isinstance(result.get("header"), dict):
+                    result["header"] = dict(result["header"])
+                self._record_metric("backend_play_cache_hit")
+                return result
+            if cached:
+                self._backend_play_cache.pop(cache_key, None)
+        session = self._backend_session()
+        response = session.get(
+            self._backend_endpoint("play"),
+            params={"id": play_id, "type": "client-proxy", "from": "jar"},
+            timeout=max(25, self.timeout),
+        )
+        data = self._response_json(response, "后端播放")
+        url = data.get("url")
+        if isinstance(url, str) and url.startswith("/"):
+            data["url"] = self.alist_api.rstrip("/") + url
+            url = data["url"]
+        if not url:
+            raise RuntimeError(str(data.get("msg") or data.get("error") or "后端播放地址为空"))
+        data["parse"] = 0
+        data["jx"] = 0
+        data.setdefault("playUrl", "")
+        data.setdefault("header", {})
+        with self._cache_lock:
+            self._backend_play_cache[cache_key] = (time.time(), dict(data))
+            self._backend_play_cache.move_to_end(cache_key)
+            while len(self._backend_play_cache) > self.MAX_CACHE:
+                self._backend_play_cache.popitem(last=False)
+        return data
+
+    def _validate_resource_payload(self, data):
+        downlist = data.get("downlist") or {}
+        listing = downlist.get("list") if isinstance(downlist, dict) else {}
+        if listing and not isinstance(listing, dict):
+            raise RuntimeError("磁力列表结构异常")
+        panlist = data.get("panlist") or {}
+        if panlist and not isinstance(panlist, dict):
+            raise RuntimeError("网盘列表结构异常")
+        playlist = data.get("playlist") or []
+        if playlist and not isinstance(playlist, list):
+            raise RuntimeError("在线播放结构异常")
+
+    def _extract_all_objs(self, source):
+        result = {}
+        decoder = json.JSONDecoder()
+        for match in re.finditer(r"_obj\.([A-Za-z0-9_]+)\s*=", str(source or "")):
+            key = match.group(1)
+            start = match.end()
+            while start < len(source) and source[start].isspace():
+                start += 1
+            try:
+                value, _ = decoder.raw_decode(source[start:])
+                result[key] = value
+            except Exception:
+                continue
+        return result
+
+    def _extract_obj(self, source, key):
+        return self._extract_all_objs(source).get(key)
+
+    def _normalize_magnet(self, value, title=""):
+        raw = html_lib.unescape(str(value or "")).strip()
+        if raw and not raw.lower().startswith("magnet:?"):
+            if re.fullmatch(r"[A-Fa-f0-9]{40}|[A-Z2-7]{32}", raw, re.I):
+                raw = "magnet:?xt=urn:btih:" + raw
+            else:
+                match = self.MAGNET_RE.search(raw)
+                raw = match.group(0) if match else ""
+        match = self.BTIH_RE.search(raw)
+        if not match:
+            return ""
+        info_hash = match.group(1).lower()
+        extras = []
+        if "?" in raw:
+            for key, item in parse_qsl(raw.split("?", 1)[1], keep_blank_values=True):
+                if key.lower() in ("dn", "tr", "xl", "ws", "xs", "as", "kt"):
+                    extras.append((key, item))
+                if len(extras) >= 16:
+                    break
+        if title and not any(key.lower() == "dn" for key, _ in extras):
+            extras.insert(0, ("dn", self._clean_text(title)))
+        result = "magnet:?xt=urn:btih:" + info_hash
+        if extras:
+            result += "&" + urlencode(extras, doseq=True)
+        return result
+
+    def _configure_pan_capabilities(self, config):
+        self._pan_capability_configured = False
+        self._pan_capability = {}
+        raw = config.get("local_proxy_config") or config.get("local_proxy")
+        if not raw and isinstance(config.get("data"), dict):
+            raw = config["data"].get("local_proxy_config") or config["data"].get("local_proxy")
+        if isinstance(raw, str):
+            text = raw.strip()
+            if text:
+                try:
+                    raw = json.loads(text)
+                except Exception:
+                    try:
+                        raw = ast.literal_eval(text)
+                    except Exception:
+                        raw = None
+        if not isinstance(raw, dict):
+            self._log("pan-capability-init", mode="probe", configured=0)
+            return
+        self._pan_capability_configured = True
+        capabilities = {}
+        for key, value in raw.items():
+            name = str(key or "").strip().upper()
+            if isinstance(value, dict):
+                enabled = self._bool_value(value.get("enabled"), False)
+            else:
+                enabled = self._bool_value(value, False)
+            configured_state = "enabled" if enabled else "disabled"
+            capabilities[name] = {
+                "state": configured_state,
+                "configured_state": configured_state,
+                "error": "",
+                "failed_until": 0,
+            }
+        self._pan_capability = capabilities
+        self._log(
+            "pan-capability-init",
+            mode="config",
+            configured=len(capabilities),
+            enabled=sum(1 for item in capabilities.values() if item.get("state") == "enabled"),
+        )
+
+    def _pan_generation_current(self, generation):
+        with self._pan_background_lock:
+            return generation == self._pan_generation
+
+    def _provider_accel_key(self, provider):
+        name = str(provider or "").strip()
+        return self.PROVIDER_ACCEL_KEYS.get(name) or ("PROVIDER:" + name if name else "")
+
+    def _provider_allowed(self, provider):
+        key = self._provider_accel_key(provider)
+        entry = dict(self._pan_capability.get(key) or {})
+        if entry.get("state") == "failed":
+            failed_until = float(entry.get("failed_until") or 0)
+            if failed_until and time.time() >= failed_until:
+                restored = entry.get("configured_state") or "unknown"
+                entry.update({"state": restored, "error": "", "failed_until": 0})
+                with self._cache_lock:
+                    self._pan_capability[key] = entry
+        if not self._pan_capability_configured:
+            return entry.get("state") != "failed"
+        return entry.get("state") == "enabled"
+
+    def _mark_provider_capability(self, provider, state, error=""):
+        key = self._provider_accel_key(provider)
+        if not key:
+            return
+        with self._cache_lock:
+            current = dict(self._pan_capability.get(key) or {})
+            current["state"] = str(state or "unknown")
+            current["error"] = self._short_backend_error(error) if error else ""
+            current["failed_until"] = (
+                time.time() + self.pan_capability_failure_cooldown
+                if current["state"] == "failed"
+                else 0
+            )
+            self._pan_capability[key] = current
+        self._log("pan-capability", provider=provider, state=state)
+
+    def _provider_name(self, url, type_value=None, type_names=None):
+        try:
+            type_number = int(type_value)
+        except Exception:
+            type_number = None
+        if isinstance(type_names, list) and type_number is not None:
+            if 0 <= type_number < len(type_names):
+                advertised = self._clean_text(type_names[type_number])
+                if advertised:
+                    return self._canonical_provider(advertised)
+        hostname = (urlsplit(str(url or "")).hostname or "").lower()
+        for domain, name in self.PROVIDER_DOMAIN_NAMES:
+            if hostname == domain or hostname.endswith("." + domain):
+                return name
+        if type_number in self.PROVIDER_TYPE_NAMES:
+            return self.PROVIDER_TYPE_NAMES[type_number]
+        return "其他网盘"
+
+    def _canonical_provider(self, value):
+        text = self._clean_text(value)
+        aliases = (
+            ("115", "115网盘"),
+            ("夸克", "夸克网盘"),
+            ("阿里", "阿里网盘"),
+            ("百度", "百度网盘"),
+            ("迅雷", "迅雷网盘"),
+            ("UC", "UC网盘"),
+            ("天翼", "天翼网盘"),
+            ("189", "天翼网盘"),
+            ("123", "123网盘"),
+            ("移动", "移动网盘"),
+            ("和彩云", "移动网盘"),
+            ("微云", "微云"),
+        )
+        upper = text.upper()
+        for marker, name in aliases:
+            if marker.upper() in upper:
+                return name
+        return text or "其他网盘"
+
+    def _resource_remark(self, quality, magnets, pans, online):
+        if isinstance(quality, list):
+            quality_text = "/".join(self._clean_text(item) for item in quality if item)
+        else:
+            quality_text = self._clean_text(quality)
+        counts = "磁%s 盘%s 线%s" % (
+            self._safe_int(magnets),
+            self._safe_int(pans),
+            self._safe_int(online),
+        )
+        return (quality_text + " " + counts).strip()
+
+    def _quality_score(self, value):
+        text = str(value or "")
+        if self.QUALITY_4K_RE.search(text):
+            return 3
+        if self.QUALITY_1080_RE.search(text):
+            return 2
+        if re.search(r"720|HD", text, re.I):
+            return 1
+        return 0
+
+    def _time_score(self, value):
+        text = self._clean_text(value)
+        if text == "今天":
+            return 100000
+        if text == "昨天":
+            return 99999
+        match = re.search(r"(\d+)\s*天前", text)
+        if match:
+            return max(0, 99998 - int(match.group(1)))
+        return 0
+
+    def _size_bytes(self, value):
+        sizes = []
+        for match in re.finditer(
+            r"([0-9]+(?:\.[0-9]+)?)\s*(T|G|M|K)(?:i?B)?",
+            str(value or ""),
+            re.I,
+        ):
+            number = float(match.group(1))
+            unit = match.group(2).upper()
+            power = {"K": 1, "M": 2, "G": 3, "T": 4}.get(unit, 0)
+            sizes.append(int(number * (1024 ** power)))
+        return max(sizes) if sizes else 0
+
+    def _pack(self, payload):
+        compact = {self.PACK_KEYS.get(key, key): value for key, value in payload.items()}
+        raw = json.dumps(compact, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+        return self.PRIVATE_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    def _unpack(self, value):
+        if not value.startswith(self.PRIVATE_PREFIX):
+            return None
+        raw = value[len(self.PRIVATE_PREFIX):]
+        raw += "=" * (-len(raw) % 4)
+        try:
+            data = json.loads(base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8"))
+            if not isinstance(data, dict):
+                return None
+            expanded = {short: full for full, short in self.PACK_KEYS.items()}
+            return {expanded.get(key, key): value for key, value in data.items()}
+        except Exception:
+            return None
+
+    def _status_id(self, message):
+        raw = str(message or "").encode("utf-8")
+        return self.STATUS_PREFIX + base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=")
+
+    def _decode_status(self, value):
+        raw = value[len(self.STATUS_PREFIX):]
+        raw += "=" * (-len(raw) % 4)
+        try:
+            return base64.urlsafe_b64decode(raw.encode("ascii")).decode("utf-8")
+        except Exception:
+            return "资源不可用"
+
+    def _player_error(self, message):
+        text = self._clean_text(message) or "播放资源不可用"
+        return {
+            "parse": 0,
+            "jx": 0,
+            "playUrl": "",
+            "url": "",
+            "header": {},
+            "msg": text,
+            "error": text,
+            "content": text,
+        }
+
+    def _vod_id(self, dir_name, item_id):
+        return "guale-v28://%s/%s" % (dir_name, item_id)
+
+    def _vod_card(self, dir_name, item_id, title, pic, remarks=""):
+        return {
+            "vod_id": self._vod_id(dir_name, item_id),
+            "vod_name": self._clean_text(title),
+            "vod_pic": pic,
+            "vod_remarks": remarks,
+        }
+
+    def _decode_vod_id(self, value):
+        match = re.match(r"^guale-v28://(mv|tv|ac)/([A-Za-z0-9_-]+)$", value)
+        if match:
+            return match.group(1), match.group(2)
+        match = re.match(r"^guale://(mv|tv|ac)/([A-Za-z0-9_-]+)$", value)
+        if match:
+            return match.group(1), match.group(2)
+        match = re.match(r"^/?(mv|tv|ac)/([A-Za-z0-9_-]+)$", value)
+        if match:
+            return match.group(1), match.group(2)
+        return "", ""
+
+    def _image(self, dir_name, item_id, size=256):
+        return "%s/img/%s/%s/%s.webp" % (self.IMAGE_HOST, dir_name, item_id, size)
+
+    def _remember_page(self, key, value):
+        with self._cache_lock:
+            self._page_cache[key] = (time.time(), value)
+            self._page_cache.move_to_end(key)
+            while len(self._page_cache) > self.MAX_CACHE:
+                self._page_cache.popitem(last=False)
+
+    def _elapsed_ms(self, started):
+        return max(0, int((time.perf_counter() - started) * 1000))
+
+    def _record_metric(self, name, amount=1, elapsed_ms=None):
+        snapshot = None
+        now = time.time()
+        with self._metrics_lock:
+            self._metrics[name] = int(self._metrics.get(name) or 0) + int(amount or 0)
+            if elapsed_ms is not None:
+                current = dict(self._metric_latencies.get(name) or {})
+                current["count"] = int(current.get("count") or 0) + 1
+                current["total_ms"] = int(current.get("total_ms") or 0) + int(elapsed_ms)
+                current["max_ms"] = max(int(current.get("max_ms") or 0), int(elapsed_ms))
+                self._metric_latencies[name] = current
+            if now - self._metrics_last_log >= self.metrics_log_interval:
+                self._metrics_last_log = now
+                snapshot = dict(self._metrics)
+                for metric_name, latency in self._metric_latencies.items():
+                    count = int(latency.get("count") or 0)
+                    if count:
+                        snapshot[metric_name + "_avg_ms"] = int(
+                            int(latency.get("total_ms") or 0) / count
+                        )
+        if snapshot:
+            self._log("metrics", **snapshot)
+
+    def _metrics_snapshot(self):
+        with self._metrics_lock:
+            snapshot = dict(self._metrics)
+            for metric_name, latency in self._metric_latencies.items():
+                count = int(latency.get("count") or 0)
+                if count:
+                    snapshot[metric_name + "_avg_ms"] = int(
+                        int(latency.get("total_ms") or 0) / count
+                    )
+            stats = dict(self._pan_parse_stats)
+        snapshot["pan_parse_attempts"] = int(stats.get("attempts") or 0)
+        snapshot["pan_parse_successes"] = int(stats.get("successes") or 0)
+        snapshot["pan_parse_ewma_ms"] = int(stats.get("ewma_ms") or 0)
+        return snapshot
+
+    def _diag(self, stage, **values):
+        self._last_diag = {"stage": stage, "time": int(time.time()), **values}
+
+    def _log(self, stage, **values):
+        parts = []
+        for key in sorted(values):
+            value = str(values[key]).replace("\r", " ").replace("\n", " ")
+            if len(value) > 160:
+                value = value[:157] + "..."
+            parts.append("%s=%s" % (key, value))
+        suffix = " " + " ".join(parts) if parts else ""
+        print("[%s] %s%s" % (self.RUNTIME_TAG, stage, suffix), flush=True)
+
+    def _is_challenge(self, source):
+        text = str(source or "")
+        return "powSolve" in text or "浏览器安全验证" in text or "/res/pow" in text
+
+    def _is_login_page(self, source):
+        text = str(source or "")
+        return "_BT.PC.HTML('login')" in text or "您正在查看受限内容，请登录后继续" in text
+
+    def _normalize_host(self, value):
+        raw = html_lib.unescape(str(value or "")).strip()
+        if raw.startswith("//"):
+            raw = "https:" + raw
+        parsed = urlsplit(raw)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return ""
+        return urlunsplit((parsed.scheme, parsed.netloc, "", "", ""))
+
+    def _dedupe_candidates(self, values):
+        result = []
+        seen = set()
+        for latency, host in values:
+            normalized = self._normalize_host(host)
+            key = normalized.lower()
+            if normalized and key not in seen:
+                seen.add(key)
+                result.append((self._safe_int(latency, 99999), normalized))
+        result.sort(key=lambda item: item[0])
+        return result
+
+    def _array(self, data, *keys):
+        if not isinstance(data, dict):
+            return []
+        for key in keys:
+            value = data.get(key)
+            if isinstance(value, list):
+                return value
+        return []
+
+    def _at(self, values, index, default=None):
+        try:
+            return values[index]
+        except Exception:
+            return default
+
+    def _join_text(self, value):
+        if isinstance(value, list):
+            return " / ".join(self._clean_text(item) for item in value if item)
+        return self._clean_text(value)
+
+    def _safe_label(self, value):
+        text = self._clean_text(value)
+        text = text.replace("$$$", " ").replace("$", " ").replace("#", " ")
+        return re.sub(r"\s+", " ", text).strip()[:100]
+
+    def _btih(self, value):
+        match = self.BTIH_RE.search(str(value or ""))
+        return match.group(1).lower() if match else ""
+
+    def _page_number(self, value):
+        try:
+            return max(1, int(value or 1))
+        except Exception:
+            return 1
+
+    def _safe_int(self, value, default=0):
+        try:
+            return int(value)
+        except Exception:
+            return default
+
+    def _bounded_int(self, value, default, minimum, maximum):
+        try:
+            number = int(value)
+        except Exception:
+            number = int(default)
+        return min(maximum, max(minimum, number))
+
+    def _bool_value(self, value, default=False):
+        if value is None:
+            return bool(default)
+        if isinstance(value, bool):
+            return value
+        return str(value).strip().lower() not in ("", "0", "false", "no", "off")
+
+    def _url_value(self, value, default=""):
+        normalized = self._normalize_host(value)
+        return normalized or default
+
+    def _http_url_value(self, value, default=""):
+        raw = html_lib.unescape(str(value or "")).strip()
+        if raw.startswith("//"):
+            raw = "https:" + raw
+        parsed = urlsplit(raw)
+        if parsed.scheme not in ("http", "https") or not parsed.netloc:
+            return default
+        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path or "/", parsed.query, ""))
+
+    def _url_list(self, values):
+        if isinstance(values, str):
+            values = re.split(r"[\s,;]+", values)
+        result = []
+        seen = set()
+        for value in values or []:
+            normalized = self._normalize_host(value)
+            key = normalized.lower()
+            if normalized and key not in seen:
+                seen.add(key)
+                result.append(normalized)
+        return result
+
+    def _http_url_list(self, values):
+        result = []
+        seen = set()
+        for value in values or []:
+            normalized = self._http_url_value(value)
+            key = normalized.lower()
+            if normalized and key not in seen:
+                seen.add(key)
+                result.append(normalized)
+        return result
+
+    def _config(self, extend):
+        if isinstance(extend, dict):
+            return extend
+        if isinstance(extend, str) and extend.strip():
+            try:
+                value = json.loads(extend)
+                return value if isinstance(value, dict) else {}
+            except Exception:
+                return {}
+        return {}
+
+    def _atvp_runtime_context(self):
+        frame = inspect.currentframe()
+        try:
+            frame = frame.f_back if frame else None
+            for _ in range(8):
+                if frame is None:
+                    break
+                owner = frame.f_locals.get("self")
+                if owner is not None and owner is not self:
+                    api = str(getattr(owner, "_backend_api", "") or "").strip()
+                    token = str(getattr(owner, "_vod_token", "") or "").strip()
+                    proxy = getattr(owner, "_localProxyConfig", None)
+                    if api or token or isinstance(proxy, dict):
+                        return {
+                            "api": api,
+                            "token": token,
+                            "local_proxy_config": proxy if isinstance(proxy, dict) else {},
+                        }
+                frame = frame.f_back
+        finally:
+            del frame
+        return {}
+
+    def _clean_text(self, value):
+        return re.sub(r"\s+", " ", html_lib.unescape(str(value or ""))).strip()
+
+    def _empty_page(self, page, message=""):
+        result = {"list": [], "page": page, "pagecount": page, "limit": 48, "total": 0}
+        if message:
+            result["msg"] = message
+        return result
