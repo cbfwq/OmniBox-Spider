@@ -2,7 +2,7 @@
 // @author @lucky_TJQ
 // @description 聚合玩偶、木偶、蜡笔、闪电、至臻、二小、虎斑、快映、欧哥、多多、蜗牛4K等网盘站点；支持刮削、弹幕、多线路、二级分类筛选、翻页、网盘排序
 // @dependencies axios,cheerio
-// @version 1.2.4
+// @version 1.2.5
 // @downloadURL https://gh-proxy.org/https://github.com/Silent1566/OmniBox-Spider/raw/refs/heads/main/影视/网盘/玩偶聚合.js
 
 const OmniBox = require("omnibox_sdk");
@@ -12,7 +12,17 @@ const https = require("https");
 const runner = require("spider_runner");
 
 // 先导出再交给 runner
-module.exports = { home, category, search, detail, play };
+module.exports = {
+  home,
+  category,
+  search,
+  detail,
+  play,
+  login,
+  logout,
+  getLoginStatus,
+  setCookies: setCookiesFromString,
+};
 runner.run(module.exports);
 
 // ==================== 配置区域 ====================
@@ -47,6 +57,11 @@ const WANOU_CACHE_EX_SECONDS = Number(process.env.WANOU_CACHE_EX_SECONDS || 4320
 
 const PAGE_SIZE = 20;
 const REQUEST_TIMEOUT = 15000;
+// 蜗牛网盘 API 请求限流（毫秒），避免触发风控
+const WONIU4K_DRIVE_API_DELAY_MS = Math.max(0, parseInt(process.env.WONIU4K_DRIVE_DELAY || "1500", 10));
+const WONIU4K_USERNAME = String(process.env.WONIU4K_USERNAME || process.env.WONIU4K_USER || "").trim();
+const WONIU4K_PASSWORD = String(process.env.WONIU4K_PASSWORD || process.env.WONIU4K_PASS || "").trim();
+const WONIU4K_COOKIE = String(process.env.WONIU4K_COOKIE || process.env.WONIU4K_COOKIES || "").trim();
 
 // ==================== 站点域名配置 ====================
 const WOGG_SITES = splitSites(process.env.WEB_SITE_WOGG || "https://wogg.xxooo.cf;https://wogg.333232.xyz;https://www.wogg.net;");
@@ -182,13 +197,13 @@ pushSiteIfAny({
   name: "蜗牛4K",
   filterFiles: [],
   domains: WONIU4K_SITES,
-  listSelector: ".module-item",
+  listSelector: ".module-item,a.video-card",
   detailPanSelector: ".module-row-info",
   categoryUrl: "/vodtype/{categoryId}/",
   categoryUrlPage: "/vodtype/{categoryId}-{page}/",
   searchUrl: "/vodsearch/{keyword}-------------/",
   searchUrlPage: "/vodsearch/{keyword}----------{page}---/",
-  searchListSelector: ".module-search-item,.module-item",
+  searchListSelector: ".module-search-item,.module-item,a.video-card",
   panExtractMode: "mxone",
   defaultCategories: { "1": "电影", "2": "连续剧", "3": "综艺", "4": "动漫" },
 });
@@ -202,6 +217,71 @@ for (const site of SITES) {
 }
 
 const INSECURE_HTTPS_AGENT = new https.Agent({ rejectUnauthorized: false });
+
+// 仅保存蜗牛站点会话，避免聚合内其他站点互相污染 Cookie。
+let cookieStore = {};
+
+function getHostname(value = "") {
+  try {
+    return new URL(value).hostname.toLowerCase();
+  } catch {
+    return String(value || "").trim().toLowerCase();
+  }
+}
+
+function isWoniuURL(url = "") {
+  const hostname = getHostname(url);
+  return Boolean(hostname) && WONIU4K_SITES.some((siteUrl) => getHostname(siteUrl) === hostname);
+}
+
+function setCookiesFromHeaders(setCookieHeaders, baseUrl) {
+  if (!isWoniuURL(baseUrl) || !setCookieHeaders || (!Array.isArray(setCookieHeaders) && typeof setCookieHeaders !== "string")) return;
+  const list = Array.isArray(setCookieHeaders) ? setCookieHeaders : [setCookieHeaders];
+  const domain = getHostname(baseUrl);
+  if (!cookieStore[domain]) cookieStore[domain] = {};
+  for (const raw of list) {
+    const pair = String(raw).split(";")[0];
+    const index = pair.indexOf("=");
+    if (index < 0) continue;
+    const key = pair.substring(0, index).trim();
+    const value = pair.substring(index + 1).trim();
+    if (key) cookieStore[domain][key] = value;
+  }
+}
+
+function setCookiesFromString(cookieString, domain) {
+  if (!cookieString) return;
+  const domains = domain ? [getHostname(domain)] : WONIU4K_SITES.map(getHostname).filter(Boolean);
+  for (const targetDomain of domains) {
+    if (!cookieStore[targetDomain]) cookieStore[targetDomain] = {};
+    for (const part of String(cookieString).split(/[;,]/)) {
+      const index = part.indexOf("=");
+      if (index < 0) continue;
+      const key = part.substring(0, index).trim();
+      const value = part.substring(index + 1).trim();
+      if (key) cookieStore[targetDomain][key] = value;
+    }
+  }
+}
+
+function getCookieHeader(url) {
+  if (!isWoniuURL(url)) return "";
+  const cookies = cookieStore[getHostname(url)];
+  if (!cookies) return "";
+  return Object.entries(cookies)
+    .filter(([, value]) => value)
+    .map(([key, value]) => `${key}=${value}`)
+    .join("; ");
+}
+
+function clearCookies() {
+  cookieStore = {};
+}
+
+if (WONIU4K_COOKIE) {
+  setCookiesFromString(WONIU4K_COOKIE);
+  OmniBox.log("info", "[woniu4k] 已从 WONIU4K_COOKIE 加载 Cookie");
+}
 
 // ==================== 缓存 ====================
 const driveParseCache = new Map();
@@ -280,18 +360,25 @@ function pushSiteIfAny(site) {
 // ==================== 网络请求 ====================
 async function httpRequest(url, options = {}) {
   const method = String(options.method || "GET").toUpperCase();
+  const headers = {
+    Accept: "*/*",
+    ...(options.headers || {}),
+  };
+  const cookieHeader = getCookieHeader(url);
+  if (cookieHeader) headers.Cookie = cookieHeader;
+
   const response = await axios({
     url,
     method,
-    headers: {
-      Accept: "*/*",
-      ...(options.headers || {}),
-    },
+    headers,
     data: options.body,
     timeout: options.timeout || REQUEST_TIMEOUT,
     httpsAgent: INSECURE_HTTPS_AGENT,
     validateStatus: () => true,
   });
+
+  const setCookie = response.headers?.["set-cookie"];
+  if (setCookie) setCookiesFromHeaders(setCookie, url);
 
   let body = response.data;
   if (typeof body !== "string") {
@@ -303,6 +390,10 @@ async function httpRequest(url, options = {}) {
     body,
     headers: response.headers || {},
   };
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function isBlockedHtml(body = "") {
@@ -626,6 +717,12 @@ function extractPanUrlsFromDetail($, site) {
       const firstP = $(el).find("p")[0]?.children?.[0]?.data;
       if (firstP) pushUrl(firstP);
     });
+
+    $(".pan-link-item[data-pan-item]").each((_, el) => {
+      $(el).find("[data-copy]").each((__, n) => pushUrl($(n).attr("data-copy")));
+      $(el).find('a[href^="http"]').each((__, a) => pushUrl($(a).attr("href")));
+      $(el).find(".pan-link-meta").each((__, meta) => pushUrl($(meta).text().trim()));
+    });
   } else {
     const selector = site.detailPanSelector || ".module-row-info p";
     $(selector).each((_, p) => pushUrl($(p).text().trim()));
@@ -759,12 +856,15 @@ async function fetchSiteSearch(site, keyword, page = 1) {
     items.each((_, el) => {
       const $item = $(el);
       const href =
+        $item.attr("href") ||
         $item.find(".video-serial").attr("href") ||
         $item.find(".module-item-pic a").attr("href") ||
         $item.find('a[href*="/voddetail/"]').attr("href") ||
         $item.find('a[href*="/vod/detail/"]').attr("href") ||
         $item.find(".module-item-title").attr("href");
       const vodName = (
+        $item.attr("title") ||
+        $item.find(".video-title").text() ||
         $item.find(".video-serial").attr("title") ||
         $item.find(".module-item-pic img").attr("alt") ||
         $item.find(".module-item-title").attr("title") ||
@@ -794,6 +894,7 @@ async function fetchSiteSearch(site, keyword, page = 1) {
         $item.find(".module-item-text").text().trim() ||
         $item.find(".module-item-note").text().trim() ||
         $item.find(".module-poster-item-note").text().trim() ||
+        $item.find(".video-episode").text().trim() ||
         $item.find(".video-serial").text().trim() ||
         "";
       const vodYear = $item.find(".module-item-caption span").first().text().trim();
@@ -835,11 +936,14 @@ async function fetchSiteCategoryList(site, categoryId, page = 1, filters = {}) {
   $(site.listSelector).each((_, el) => {
     const $item = $(el);
     const href =
+      $item.attr("href") ||
       $item.find(".module-item-pic a").attr("href") ||
       $item.find('a[href*="/voddetail/"]').attr("href") ||
       $item.find('a[href*="/vod/detail/"]').attr("href") ||
       $item.find(".module-item-title").attr("href");
     const vodName = (
+      $item.attr("title") ||
+      $item.find(".video-title").text() ||
       $item.find(".module-item-pic img").attr("alt") ||
       $item.find(".module-item-title").attr("title") ||
       $item.find(".module-poster-item-title").text() ||
@@ -868,6 +972,7 @@ async function fetchSiteCategoryList(site, categoryId, page = 1, filters = {}) {
       $item.find(".module-item-text").text().trim() ||
       $item.find(".module-item-note").text().trim() ||
       $item.find(".module-poster-item-note").text().trim() ||
+      $item.find(".video-episode").text().trim() ||
       $item.find(".video-serial").text().trim() ||
       "";
     const vodYear = $item.find(".module-item-caption span").first().text().trim();
@@ -900,16 +1005,18 @@ async function fetchSiteDetail(site, videoId) {
     $(".page-title").text().replace(/\s+/g, " ").trim() ||
     $(".video-info-header h1").first().text().replace(/\s+/g, " ").trim() ||
     $(".module-info-heading h1").first().text().replace(/\s+/g, " ").trim() ||
+    $(".mobile-detail-title").first().text().replace(/\s+/g, " ").trim() ||
+    $(".premium-title").first().text().replace(/\s+/g, " ").trim() ||
     "";
   let vodPic =
     $(".mobile-play .lazyload").attr("data-src") ||
-    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy,.premium-poster img")
       .first()
       .attr("data-src") ||
-    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy,.premium-poster img")
       .first()
       .attr("data-original") ||
-    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy")
+    $(".module-item-pic img,.module-info-poster img,.video-cover img,img.lazyload,img.lazy,.premium-poster img")
       .first()
       .attr("src") ||
     "";
@@ -935,13 +1042,48 @@ async function fetchSiteDetail(site, videoId) {
 
   if (!vodContent) {
     vodContent = (
-      $(".vod_content,.module-info-introduction,.video-info-content,.module-info-main .module-info-item-content")
+      $(".vod_content,.module-info-introduction,.video-info-content,.module-info-main .module-info-item-content,.detail-desc-text,.premium-plot")
         .last()
         .text() || ""
     )
       .replace(/收起|展开全部|内详/g, "")
       .replace(/\s+/g, " ")
       .trim();
+  }
+
+  const infoText = $(".video-info,.module-info-main,.module-info,.premium-meta-grid,.detail-info-premium").text() || "";
+  if (!vodYear) {
+    const match = infoText.match(/(?:年代|年份|上映)[:：]?\s*(\d{4})/) || infoText.match(/\b(19|20)\d{2}\b/);
+    if (match) vodYear = String(match[1] || match[0]).replace(/\D/g, "").slice(0, 4);
+  }
+  if (!vodDirector) {
+    const match = infoText.match(/导演[:：]?\s*([^\n]+?)\s*(主演|年代|备注|剧情|$)/);
+    if (match) vodDirector = match[1].replace(/^\/\s*/, "").trim();
+  }
+  if (!vodActor) {
+    const match = infoText.match(/主演[:：]?\s*([^\n]+?)\s*(年代|备注|剧情|导演|$)/);
+    if (match) vodActor = match[1].replace(/^\/\s*/, "").trim();
+  }
+
+  if (!vodDirector || !vodActor || !vodYear) {
+    $(".premium-meta-grid .meta-item").each((_, el) => {
+      const label = $(el).find(".m-label").text().trim();
+      const value = $(el).find(".m-val").text().trim();
+      if (!label || !value) return;
+      if (!vodDirector && label.includes("导演")) vodDirector = value;
+      if (!vodActor && label.includes("主演")) vodActor = value;
+      if (!vodYear && (label.includes("年代") || label.includes("年份") || label.includes("上映"))) {
+        const match = value.match(/(19|20)\d{2}/);
+        if (match) vodYear = match[0];
+      }
+    });
+  }
+
+  if (!vodYear) {
+    $(".premium-tags-top .p-tag").each((_, el) => {
+      const match = $(el).text().trim().match(/^(19|20)\d{2}$/);
+      if (match) vodYear = match[0];
+    });
   }
 
   const panUrls = extractPanUrlsFromDetail($, site);
@@ -973,9 +1115,17 @@ async function handleSiteDetail(vodId, drives, context) {
   const driveTypeCurrentIndexMap = {};
 
   // ==================== 限并发处理网盘链接 ====================
-  const detailConcurrency = 4;
+  const detailConcurrency = site.id === "woniu4k" ? 1 : 4;
+  let woniuRequestIndex = 0;
   const panUrlResults = await runWithConcurrency(panItems.map(item => item.url), detailConcurrency, async (shareURL) => {
     try {
+      if (site.id === "woniu4k") {
+        const requestIndex = woniuRequestIndex++;
+        if (requestIndex > 0 && WONIU4K_DRIVE_API_DELAY_MS > 0) {
+          await sleep(WONIU4K_DRIVE_API_DELAY_MS);
+        }
+      }
+
       await OmniBox.log("info", `[detail] 处理网盘链接: ${shareURL}`);
 
       const driveInfo = await getDriveInfoCached(shareURL);
@@ -1348,6 +1498,99 @@ async function matchDanmakuByCandidates(candidates = []) {
 }
 
 // ==================== OmniBox handlers ====================
+// ==================== 蜗牛4K 登录 ====================
+
+function getWoniuBaseUrl() {
+  return removeTrailingSlash(WONIU4K_SITES[0] || "");
+}
+
+function resolveSiteUrl(value, baseUrl) {
+  if (!value) return "";
+  try {
+    return new URL(value, `${baseUrl}/`).toString();
+  } catch {
+    return "";
+  }
+}
+
+async function login(params) {
+  const username = String(params?.username || WONIU4K_USERNAME || "").trim();
+  const password = String(params?.password || WONIU4K_PASSWORD || "").trim();
+  const captchaCode = String(params?.captcha || params?.verify || "").trim();
+  const baseUrl = getWoniuBaseUrl();
+
+  if (!baseUrl) return { code: -1, msg: "蜗牛4K 站点未配置" };
+  if (!username || !password) {
+    await OmniBox.log("warn", "[woniu4k] 登录失败: 请设置 WONIU4K_USERNAME / WONIU4K_PASSWORD");
+    return { code: -1, msg: "用户名或密码未配置" };
+  }
+
+  try {
+    const loginPage = await httpRequest(`${baseUrl}/user/login/`, { timeout: 15000 });
+    const $ = cheerio.load(loginPage.body || "");
+    const hasVerify = $("#verify").length > 0 || $("#verify_img").length > 0;
+    if (hasVerify && !captchaCode) {
+      const verifyUrl = resolveSiteUrl($("#verify_img").attr("src") || "", baseUrl);
+      return { code: -2, msg: "需要验证码", verifyUrl, verifyImg: verifyUrl };
+    }
+
+    const formData = new URLSearchParams();
+    formData.append("user_name", username);
+    formData.append("user_pwd", password);
+    if (captchaCode) formData.append("verify", captchaCode);
+
+    const response = await httpRequest(`${baseUrl}/user/login.html`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "X-Requested-With": "XMLHttpRequest",
+        Referer: `${baseUrl}/user/login/`,
+      },
+      body: formData.toString(),
+      timeout: 15000,
+    });
+
+    try {
+      return JSON.parse(response.body || "{}");
+    } catch {
+      return { code: 0, msg: "登录响应解析失败" };
+    }
+  } catch (error) {
+    await OmniBox.log("error", `[woniu4k] 登录异常: ${error.message}`);
+    return { code: -1, msg: error.message };
+  }
+}
+
+async function logout() {
+  const baseUrl = getWoniuBaseUrl();
+  if (!baseUrl) return { code: -1, msg: "蜗牛4K 站点未配置" };
+  try {
+    await httpRequest(`${baseUrl}/user/logout.html`, { timeout: 10000 });
+    clearCookies();
+    return { code: 1, msg: "已退出" };
+  } catch (error) {
+    clearCookies();
+    return { code: -1, msg: error.message };
+  }
+}
+
+async function getLoginStatus() {
+  const baseUrl = getWoniuBaseUrl();
+  if (!baseUrl) return { loggedIn: false, username: "" };
+  try {
+    const response = await httpRequest(`${baseUrl}/user/index.html`, { timeout: 10000 });
+    const $ = cheerio.load(response.body || "");
+    const selector = ".user-name, .user-info-name, .header-user-name";
+    const loggedIn = response.body.includes("退出登录") || $(selector).length > 0;
+    const username = loggedIn ? ($(selector).first().text().trim() || "已登录") : "";
+    return { loggedIn, username };
+  } catch {
+    return { loggedIn: false, username: "" };
+  }
+}
+
+// ==================== 接口函数 ====================
+
 async function home(params, context) {
   try {
     await OmniBox.log("info", `[home] start, sites=${SITES.length}`);
