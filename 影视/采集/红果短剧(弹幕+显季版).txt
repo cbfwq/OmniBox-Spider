@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import binascii
 import bisect
+import gzip
 import hashlib
 import json
 import os
@@ -3449,8 +3450,13 @@ def _xg_rc4(data: bytes, key: bytes) -> bytearray:
 def _reverse_bits(value: int) -> int:
     return int(f"{value:08b}"[::-1], 2)
 
-def _encrypt_gorgon(body: Any, query: str, khronos: int, xg_rand: int, data_type: str) -> str:
-    body_md5 = _json_body_md5(body, data_type).lower() if body else ""
+def _encrypt_gorgon(body: Any, query: str, khronos: int, xg_rand: int, data_type: str, body_md5_bytes=None) -> str:
+    # 上游 6.6 起 POST 正文是 gzip 字节：签名必须用实际发送体的 MD5，
+    # 而不是「原始 JSON 对象的 MD5」。GET 无正文时传 16 个零字节。
+    if body_md5_bytes is not None:
+        body_md5 = bytes(body_md5_bytes).hex().lower()
+    else:
+        body_md5 = _json_body_md5(body, data_type).lower() if body else ""
     data = bytearray(hashlib.md5(query.encode()).digest()[:4])
     data += bytes.fromhex(body_md5)[:4] if body_md5 else b"\0\0\0\0"
     data += b"\0\0\0\0" + (67503104).to_bytes(4, "little") + khronos.to_bytes(4, "big")
@@ -3497,9 +3503,12 @@ def _encrypt_helios(khronos: int, rand_value: int = 0) -> str:
         output += left.to_bytes(8, "little") + right.to_bytes(8, "little")
     return base64.b64encode(value.to_bytes(4, "little") + output).decode()
 
-def _gen_medusa_proto(url: str, url_params: Mapping[str, Any], devices: Mapping[str, Any], data: Any, khronos: int, data_type: str) -> tuple[bytes, bytes, bytes]:
-    body_md5 = _json_body_md5(data, data_type).lower() if data else ""
-    body_md5_bytes = bytes.fromhex(body_md5) if body_md5 else bytes(16)
+def _gen_medusa_proto(url: str, url_params: Mapping[str, Any], devices: Mapping[str, Any], data: Any, khronos: int, data_type: str, body_md5_bytes_override=None) -> tuple[bytes, bytes, bytes]:
+    if body_md5_bytes_override is not None:
+        body_md5_bytes = bytes(body_md5_bytes_override)
+    else:
+        body_md5 = _json_body_md5(data, data_type).lower() if data else ""
+        body_md5_bytes = bytes.fromhex(body_md5) if body_md5 else bytes(16)
     ts_bytes = khronos.to_bytes(4, "little")
     query = url.split("?", 1)[1] if "?" in url else ""
     query_sm3 = SM3(query).digest()
@@ -3578,11 +3587,11 @@ def _xmxor(data: bytes, key: bytes) -> bytearray:
     value[0] = ((value[0] ^ value[1]) + sum(value[1:])) & 0xFF
     return value
 
-def _gen_medusa(url: str, url_params: Mapping[str, Any], devices: Mapping[str, Any], data: Any, khronos: int, data_type: str) -> str:
+def _gen_medusa(url: str, url_params: Mapping[str, Any], devices: Mapping[str, Any], data: Any, khronos: int, data_type: str, body_md5_bytes_override=None) -> str:
     config_key = b"\xf1Y3vvn\xa9\x8d4\xf3\x1b\x05z\x9d[\xe4"
     config_iv = b"\x1f\xe1\t\xa4\x12R\x83\xf4\x18\xde\x9e\x05\x1a\x96\x9e\x12"
     sign_key = b"\x8e\xbd\xfa8\x06\xec\xc5\xce\xe7\x94#\xe6\x02\x9e\xd8%@\xbc\"\x18\xbb~\xae\xf7\x1c\xb6\x91\xf7\xaa\x8a\xa2\xf5"
-    proto, query_sm3, body_sm3 = _gen_medusa_proto(url, url_params, devices, data, khronos, data_type)
+    proto, query_sm3, body_sm3 = _gen_medusa_proto(url, url_params, devices, data, khronos, data_type, body_md5_bytes_override)
     hash_rand = random.randint(0, 0xFFFFFFFF)
     xm_rand = random.randint(0, 0xFFFFFFFF)
     key, seed = get_key_hash(sign_key, hash_rand)
@@ -3642,7 +3651,8 @@ def _device_config(config: Mapping[str, Any]) -> dict[str, str]:
         "ua": APP_UA,
     }
 
-def _video_model(video_id: str, config: Mapping[str, Any]) -> dict[str, Any]:
+def _video_model_legacy(video_id: str, config: Mapping[str, Any]) -> dict[str, Any]:
+    # 2026-11-10 之前的旧协议，保留作回退（把 _HG_USE_NEW_PLAYBACK 改为 False 即可）。
     devices = _device_config(config)
     params = {
         "iid": devices["install_id"],
@@ -3739,6 +3749,367 @@ def _video_model(video_id: str, config: Mapping[str, Any]) -> dict[str, Any]:
     if not isinstance(raw_model, Mapping):
         raise HongguoPluginError("video_model 为空")
     return dict(raw_model)
+
+
+# ===================== 上游 6.9 取流协议（2026-11-13 修正） =====================
+# 2026-11-11 那次「风控升级」的真正原因：上游 6.9 开始校验真实
+# 551 Argus / Ladon 签名；此前 x-argus / x-ladon 只是时间戳 base64 占位，
+# 占位签名一律回 HTTP 200 + 0 字节，换设备、换域名、换出口都无效。
+# 这里复用文件内弹幕子系统的 _dm_sign_headers（同为 551 Argus/Ladon，
+# aid=8662、license_id=1611921764），按「最终 query + 实际 body」计算签名：
+#   1) 首选签名 GET video_tab（73932、无正文）；空包才换身份走 gzip POST（74332）。
+#   2) query 带注册身份 cdid；每次取流注册全新匿名身份。
+#   3) 连续空包短时熔断，避免播放器一直卡在取流上。
+# 参考：sunnysky123/hongguo-web 1.3.1、zfdang/hongguo-open-player 的公开实现。
+_HG_USE_NEW_PLAYBACK = True          # 改 False 可回退到旧协议 _video_model_legacy
+_HG_API_HOST = "api5-normal-sinfonlineb.fqnovel.com"
+_HG_POST_API = "https://" + _HG_API_HOST + "/novel/player/multi_video_model/v1/"
+_HG_TAB_API = "https://" + _HG_API_HOST + "/reading/bookapi/video_tab/multi_video_model/v1/"
+
+_HG_DEVICE_BASE = (
+    ("ac", "wifi"), ("channel", "update_64"), ("aid", "8662"),
+    ("app_name", "novelread"), ("version_code", "71332"),
+    ("version_name", "7.1.3.32"), ("device_platform", "android"),
+    ("os", "android"), ("ssmix", "a"), ("device_type", "25053RT47C"),
+    ("device_brand", "Redmi"), ("language", "zh"), ("os_api", "36"),
+    ("os_version", "16"), ("manifest_version_code", "71332"),
+    ("resolution", "1280*2772"), ("dpi", "520"),
+    ("update_version_code", "71332"), ("host_abi", "arm64-v8a"),
+    ("dragon_device_type", "phone"), ("pv_player", "71332"),
+    ("compliance_status", "0"), ("need_personal_recommend", "1"),
+    ("player_so_load", "1"), ("is_android_pad_screen", "0"),
+)
+_HG_PLAYBACK_VERSION = {
+    "version_code": "74332", "version_name": "7.4.3.32",
+    "manifest_version_code": "74332", "update_version_code": "74332",
+    "pv_player": "74332",
+}
+_HG_TAB_VERSION = {
+    "version_code": "73932", "version_name": "7.3.9.32",
+    "manifest_version_code": "73932", "update_version_code": "73932",
+    "pv_player": "73932",
+}
+_HG_REGISTER_URL = (
+    "https://log5-applog-lf.fqnovel.com/service/2/device_register/"
+    "?tt_data=a&cronet_version=8d40f833_2026-03-03"
+    "&ttnet_version=4.2.243.31-douyin&use_store_region_cookie=1"
+)
+_HG_REGISTER_UA = ("com.phoenix.read/72232 (Linux; U; Android 16; zh_CN; "
+                   "25053RT47C; Build/BP2A.250605.031.A3)")
+_HG_KDF_SALT = bytes.fromhex(
+    "4dd4c2e6b83162090e52b3c7a6733ba41cb2462b829ab58a196b39db57177524"
+    "f49baf7f08e8d68d26a72e37c1a95a2f1f05a51892aef2949732b62a38aadd58"
+)
+
+_HG_EMPTY_LOCK = threading.Lock()
+_HG_EMPTY_STATE = {"count": 0, "until": 0.0}
+
+
+def _hg_empty_check() -> None:
+    with _HG_EMPTY_LOCK:
+        until = _HG_EMPTY_STATE["until"]
+    if time.time() < until:
+        raise HongguoPluginError("上游播放接口暂时不可用（连续空响应），已暂停 60 秒")
+
+
+def _hg_note_empty() -> None:
+    with _HG_EMPTY_LOCK:
+        _HG_EMPTY_STATE["count"] += 1
+        # 一次调用已经打过 POST + GET 两条；两次调用共 4 个空包就熔断，
+        # 避免播放器在一次起播里反复注册设备、把取流拖到十几秒。
+        if _HG_EMPTY_STATE["count"] >= 2:
+            _HG_EMPTY_STATE["until"] = time.time() + 60.0
+            _HG_EMPTY_STATE["count"] = 0
+
+
+def _hg_note_ok() -> None:
+    with _HG_EMPTY_LOCK:
+        _HG_EMPTY_STATE["count"] = 0
+        _HG_EMPTY_STATE["until"] = 0.0
+
+
+def _hg_empty_error() -> HongguoPluginError:
+    err = HongguoPluginError("播放接口返回空响应")
+    err._hg_empty = True
+    return err
+
+
+def _hg_aes_cbc_encrypt(key: bytes, iv: bytes, data: bytes) -> bytes:
+    """ttEncrypt 注册体用的 AES-128-CBC；壳里没装加密库时走文件自带的纯 Python AES。"""
+    pad = 16 - (len(data) % 16)
+    plain = data + bytes([pad]) * pad
+    if CryptoAES is not None:
+        return CryptoAES.new(key, CryptoAES.MODE_CBC, iv).encrypt(plain)
+    if Cipher is not None:
+        enc = Cipher(algorithms.AES(key), modes.CBC(iv)).encryptor()
+        return enc.update(plain) + enc.finalize()
+    aes = _PureAES128(key)
+    out = bytearray()
+    prev = iv
+    for off in range(0, len(plain), 16):
+        block = bytes(a ^ b for a, b in zip(plain[off:off + 16], prev))
+        enc = aes.encrypt_block(block)
+        out += enc
+        prev = enc
+    return bytes(out)
+
+
+def _hg_playback_identity() -> dict:
+    """注册一个全新的匿名播放身份（device_id / iid / cdid）；失败回退旧明文注册。"""
+    import uuid as _uuid
+    cdid = str(_uuid.uuid4())
+    try:
+        now = int(time.time() * 1000)
+        header = {
+            "display_name": "红果免费短剧", "update_version_code": 73932,
+            "manifest_version_code": 73932, "app_version_minor": "7.3.9.32",
+            "aid": 8662, "channel": "update_64", "package": "com.phoenix.read",
+            "app_version": "7.3.9.32", "version_code": 73932,
+            "sdk_version": "3.7.0-rc.34-fanqie-xiaoshuo", "sdk_target_version": 29,
+            "git_hash": "3a88f4e", "os": "Android", "os_version": "16", "os_api": 36,
+            "device_model": "25053RT47C", "device_brand": "Redmi",
+            "device_manufacturer": "Redmi", "cpu_abi": "arm64-v8a",
+            "release_build": "b5e187f", "density_dpi": 520, "display_density": "mdpi",
+            "resolution": "1280x2772", "language": "zh", "timezone": 8,
+            "access": "wifi", "not_request_sender": 0, "carrier": "CHINA MOBILE",
+            "mcc_mnc": "46000", "rom": "eng.root.20231116.160340",
+            "rom_version": "W528JS release-keys", "cdid": cdid,
+            "sig_hash": "56a962410c494bbaf0b58dba20cae56f",
+            "openudid": "".join(random.choice("0123456789abcdef") for _ in range(16)),
+            "clientudid": str(_uuid.uuid4()), "ipv6_list": [], "region": "CN",
+            "tz_name": "Asia/Shanghai", "tz_offset": 28800, "sim_region": "cn",
+            "sim_serial_number": [], "oaid_may_support": False,
+            "req_id": str(_uuid.uuid4()), "device_platform": "android",
+            "custom": {"account_region_src": "fallback", "account_region": "cn",
+                       "host_bit": 64, "dragon_device_type": "phone"},
+            "pre_installed_channel": "", "apk_first_install_time": now,
+            "is_system_app": 0, "sdk_flavor": "china", "guest_mode": 0,
+        }
+        raw = json.dumps({"magic_tag": "ss_app_log", "header": header,
+                          "_gen_time": now}, ensure_ascii=False,
+                         separators=(",", ":")).encode("utf-8")
+        try:
+            compressed = gzip.compress(raw, mtime=0)
+        except TypeError:          # 老版本 Python 没有 mtime 参数
+            compressed = gzip.compress(raw)
+        rnd = os.urandom(32)
+        derived = hashlib.sha512(hashlib.sha512(rnd).digest() + _HG_KDF_SALT).digest()
+        plain = hashlib.sha512(compressed).digest() + compressed
+        body = (bytes.fromhex("746305100000") + rnd
+                + _hg_aes_cbc_encrypt(derived[:16], derived[16:32], plain))
+        reg_headers = {
+            "User-Agent": _HG_REGISTER_UA, "Accept": "application/json",
+            "Content-Type": "application/octet-stream;tt-data=a",
+            "log-encode-type": "gzip", "x-ss-dp": "8662",
+            "x-ss-req-ticket": str(now), "x-vc-bdturing-sdk-version": "4.0.3.cn",
+            "lc": "101", "sdk-version": "2", "passport-sdk-version": "5051452",
+            "x-neptune": "-8|50:51:59:30:40:47:49:39",
+            "x-ss-stub": hashlib.md5(body).hexdigest().upper(),
+        }
+        resp = requests.post(_HG_REGISTER_URL, data=body, headers=reg_headers, timeout=10)
+        if resp.status_code == 200:
+            j = resp.json()
+            did = str(j.get("device_id_str") or j.get("device_id") or "")
+            iid = str(j.get("install_id_str") or j.get("install_id") or "")
+            if did.isdigit() and iid.isdigit() and did != "0" and iid != "0":
+                return {"device_id": did, "iid": iid, "cdid": cdid}
+    except Exception:
+        pass
+    pair = _register_device_pair()
+    if pair:
+        return {"device_id": pair[0], "iid": pair[1], "cdid": cdid}
+    return {"device_id": str(random.randint(10**17, 10**18 - 1)),
+            "iid": str(random.randint(10**17, 10**18 - 1)), "cdid": cdid}
+
+
+def _hg_sign_branch(query: str, body_md5_bytes: bytes, khronos: int) -> int:
+    """与 hash_f13 相同的分支判定；上游只接受 branch 0，非 0 要抖动 _rticket。"""
+    q = SM3(query).digest()
+    iv = get_iv(0x20230928, q)
+    iv = get_iv(iv, body_md5_bytes)
+    iv = get_iv(iv, khronos.to_bytes(4, "little"))
+    low = iv & 15
+    return low - ((low * 171) >> 9) * 3
+
+
+def _hg_signed_url(api: str, identity: Mapping, version: Mapping,
+                   biz_items, khronos: int):
+    """按上游字段顺序拼 query。6.9 起播放签名不再依赖 medusa 的 branch，
+    _rticket 直接用毫秒时间即可（签名绑定的是最终 query 原文）。"""
+    ticket = int(time.time() * 1000)
+    params = dict(_HG_DEVICE_BASE)
+    params.update(version)
+    params["device_id"] = identity["device_id"]
+    params["iid"] = identity["iid"]
+    params["cdid"] = identity["cdid"]
+    for key, value in biz_items:
+        params[key] = value
+    params["ts"] = str(khronos)
+    params["_rticket"] = str(ticket)
+    return api + "?" + _url_encode(params), params, ticket
+
+
+def _hg_six_headers(url: str, params: Mapping, devices: Mapping,
+                    body_bytes, khronos: int, tab: bool) -> dict:
+    """上游 6.9：播放请求要真实 551 Argus/Ladon 签名，不再吃六神占位头。
+    这套签名弹幕模块里本来就有（_dm_sign_headers），aid=8662、
+    license_id=1611921764 与播放侧完全一致，直接复用。"""
+    query = _url_encode(params)
+    signs = _dm_sign_headers(query, body_bytes, devices["device_id"],
+                             "", 8662, 1611921764, ts=khronos)
+    headers = {
+        "User-Agent": APP_UA.replace("71332", "73932" if tab else "74332"),
+        "Accept": "application/json; charset=utf-8,application/x-protobuf",
+        "sdk-version": "2",
+        "x-xs-from-web": "0",
+        "passport-sdk-version": "50561" if tab else "5051452",
+        "x-ss-dp": "8662",
+    }
+    if tab:
+        headers["x-tt-request-tag"] = "t=0;n=0"
+        headers["Connection"] = "close"
+    else:
+        headers["Content-Type"] = "application/json; charset=UTF-8"
+        headers["Content-Encoding"] = "gzip"
+    headers.update(signs)
+    headers["x-tt-dt"] = ""
+    headers["x-tt-store-region"] = "cn"
+    headers["x-tt-store-region-src"] = "did"
+    return headers
+
+
+def _hg_parse_response(resp, vid: str) -> dict:
+    if resp.status_code != 200:
+        raise HongguoPluginError("播放接口 HTTP %s" % resp.status_code)
+    if not resp.content:
+        raise _hg_empty_error()
+    try:
+        j = resp.json()
+    except Exception:
+        raise _hg_empty_error()
+    data = j.get("data") if isinstance(j, Mapping) else None
+    if not isinstance(data, Mapping) or not data:
+        raise _hg_empty_error()
+    tab = data.get("video_model_data")
+    entries = tab if isinstance(tab, Mapping) and tab else data
+    entry = entries.get(vid) if isinstance(entries, Mapping) else None
+    if not isinstance(entry, Mapping):
+        for value in (entries.values() if isinstance(entries, Mapping) else []):
+            if isinstance(value, Mapping) and (
+                    value.get("video_model") is not None
+                    or value.get("video_list") is not None):
+                entry = value
+                break
+    if not isinstance(entry, Mapping):
+        raise HongguoPluginError("播放接口未返回本集模型")
+    model = entry.get("video_model")
+    if model is None:
+        model = entry
+    if isinstance(model, str):
+        try:
+            model = json.loads(model)
+        except ValueError:
+            raise HongguoPluginError("video_model JSON 无效")
+    if not isinstance(model, Mapping):
+        raise HongguoPluginError("video_model 为空")
+    model = dict(model)
+    # 新接口有时只给 fallback_api，需再取一次才有 video_list
+    if not _video_list_from_model(model):
+        fb = _fallback_api_value(model)
+        if fb:
+            try:
+                r2 = requests.get(fb, headers={"User-Agent": MEDIA_UA}, timeout=20)
+                j2 = r2.json()
+                outer = j2.get("video_info") or {}
+                info = outer.get("data") if isinstance(outer, Mapping) else {}
+                if isinstance(info, Mapping) and info.get("video_list") is not None:
+                    merged = dict(info)
+                    merged.update({k: v for k, v in model.items()
+                                   if k != "video_list"})
+                    model = merged
+            except Exception:
+                pass
+    return model
+
+
+def _hg_try_post(vid: str, body: bytes, identity: Mapping) -> dict:
+    kh = int(time.time())
+    url, params, _ticket = _hg_signed_url(
+        _HG_POST_API, identity, _HG_PLAYBACK_VERSION, (), kh)
+    devices = _device_config({"device_id": identity["device_id"],
+                              "install_id": identity["iid"]})
+    devices["version_name"] = "7.4.3.32"
+    headers = _hg_six_headers(url, params, devices, body, kh, False)
+    return _hg_parse_response(requests.post(url, headers=headers, data=body,
+                                            timeout=20,
+                                            allow_redirects=False), vid)
+
+
+def _hg_try_tab(vid: str, identity: Mapping) -> dict:
+    kh = int(time.time())
+    biz = (
+        ("video_id", vid), ("video_id_type", "0"), ("device_level", "1"),
+        ("need_all_video_definition", "1"), ("need_mp4_align", "0"),
+        ("use_os_player", "0"), ("video_platform", "1024"),
+        ("source", "0"), ("from_video_id", ""),
+    )
+    url, params, _ticket = _hg_signed_url(
+        _HG_TAB_API, identity, _HG_TAB_VERSION, biz, kh)
+    devices = _device_config({"device_id": identity["device_id"],
+                              "install_id": identity["iid"]})
+    devices["version_name"] = "7.3.9.32"
+    headers = _hg_six_headers(url, params, devices, None, kh, True)
+    return _hg_parse_response(requests.get(url, headers=headers, timeout=20,
+                                           allow_redirects=False), vid)
+
+
+def _hg_video_model_upstream(video_id: str) -> dict:
+    """6.9 首选：签名 GET video_tab；空包才换身份走 gzip POST 备用路径。"""
+    _hg_empty_check()
+    vid = str(video_id)
+    try:
+        model = _hg_try_tab(vid, _hg_playback_identity())
+        _hg_note_ok()
+        return model
+    except HongguoPluginError as err:
+        if not getattr(err, "_hg_empty", False):
+            raise
+    payload = {
+        "biz_param": {
+            "detail_page_version": 0, "device_level": 3,
+            "disable_digg_stat": False, "need_all_video_definition": True,
+            "need_mp4_align": False, "use_os_player": False,
+            "use_server_dns": False, "video_platform": 1024,
+        },
+        "mixed_video_id_map": {"1004": [vid]},
+    }
+    raw = json.dumps(payload, ensure_ascii=False,
+                     separators=(",", ":")).encode("utf-8")
+    try:
+        body = gzip.compress(raw, mtime=0)
+    except TypeError:
+        body = gzip.compress(raw)
+    try:
+        time.sleep(0.3)
+    except Exception:
+        pass
+    try:
+        model = _hg_try_post(vid, body, _hg_playback_identity())
+        _hg_note_ok()
+        return model
+    except HongguoPluginError as err:
+        if getattr(err, "_hg_empty", False):
+            _hg_note_empty()
+            raise HongguoPluginError(
+                "上游播放接口返回空响应（签名/风控），已暂停重复请求，稍后自动重试") from err
+        raise
+
+
+def _video_model(video_id: str, config: Mapping[str, Any]) -> dict[str, Any]:
+    if _HG_USE_NEW_PLAYBACK:
+        return _hg_video_model_upstream(video_id)
+    return _video_model_legacy(video_id, config)
+
 
 def _video_list_from_model(model: Mapping[str, Any]) -> Any:
     for key in ("video_list", "dynamic_video_list"):
@@ -4942,8 +5313,10 @@ def _dm_ladon_encrypt(ts: int, license_id: int, aid: int, rand4: bytes) -> str:
 
 
 def _dm_sign_headers(query: str, body: bytes, device_id: str, install_id: str = "",
-                     aid: int = 8662, license_id: int = 1611921764) -> dict:
-    ts = int(time.time())
+                     aid: int = 8662, license_id: int = 1611921764,
+                     ts: int = 0) -> dict:
+    # 播放侧复用时要求 x-khronos / query.ts / x-ss-req-ticket 用同一个时间戳
+    ts = int(ts) if ts else int(time.time())
     stub = hashlib.md5(body).hexdigest() if body else ""
     headers = {
         "x-ss-req-ticket": str(ts * 1000),
